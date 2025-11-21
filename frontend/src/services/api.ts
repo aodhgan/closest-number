@@ -22,7 +22,7 @@ export function fetchGameState() {
   return apiRequest('/game');
 }
 
-export function submitGuess(payload: { guess: string; player: string; paymentTxHash: string }) {
+export function submitGuess(payload: { guess: string; player: string; authorization: unknown }) {
   return apiRequest('/game/guess', {
     method: 'POST',
     body: JSON.stringify(payload),

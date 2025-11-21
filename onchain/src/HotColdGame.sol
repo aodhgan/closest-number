@@ -3,6 +3,21 @@ pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+interface IERC3009 is IERC20 {
+    function transferWithAuthorization(
+        address from,
+        address to,
+        uint256 value,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external returns (bool);
+}
 
 /// @title HotColdGame
 /// @notice Minimal on-chain vault for the hot–cold enclave game. Players prepay the current buy-in
@@ -31,8 +46,8 @@ contract HotColdGame is Ownable, ReentrancyGuard {
     event TeeUpdated(address indexed previousTee, address indexed newTee);
 
     struct Round {
-        uint256 buyIn; // price per guess in wei
-        uint256 pot; // accumulated ETH for this round
+        uint256 buyIn; // price per guess in token base units
+        uint256 pot; // accumulated ERC20 tokens for this round
         uint256 guesses; // number of paid guesses
         address winner; // non-zero when settled
         bool active; // true while accepting payments
@@ -40,6 +55,9 @@ contract HotColdGame is Ownable, ReentrancyGuard {
 
     uint256 public currentRoundId;
     mapping(uint256 => Round) public rounds;
+
+    /// @notice ERC20 token used for payments (must implement ERC3009 transferWithAuthorization)
+    IERC3009 public immutable paymentToken;
 
     /// @notice The only address allowed to update pricing and settle rounds.
     address public tee;
@@ -51,11 +69,13 @@ contract HotColdGame is Ownable, ReentrancyGuard {
 
     /// @param initialBuyInWei starting buy-in for the first round
     /// @param teeAddress trusted enclave/TEE controller
-    constructor(uint256 initialBuyInWei, address teeAddress) {
+    constructor(uint256 initialBuyInWei, address teeAddress, address paymentTokenAddress) {
         require(initialBuyInWei > 0, "Buy-in must be > 0");
         require(teeAddress != address(0), "TEE address required");
+        require(paymentTokenAddress != address(0), "Payment token required");
 
         tee = teeAddress;
+        paymentToken = IERC3009(paymentTokenAddress);
 
         currentRoundId = 1;
         rounds[1] = Round({buyIn: initialBuyInWei, pot: 0, guesses: 0, winner: address(0), active: true});
@@ -64,20 +84,50 @@ contract HotColdGame is Ownable, ReentrancyGuard {
         emit TeeUpdated(address(0), teeAddress);
     }
 
-    /// @notice Prepay for a guess in the active round. The enclave/backend should only accept guesses
-    /// after observing this event.
+    /// @notice Pull a buy-in payment from the payer using ERC3009 authorization and credit the round pot.
+    /// @dev This method pays gas on behalf of the user; the backend/TEE submits the transaction with the
+    /// signed authorization payload provided by the player.
     /// @param roundId round identifier that must match the current active round
-    function payForGuess(uint256 roundId) external payable nonReentrant {
+    /// @param payer address of the player who signed the authorization
+    /// @param validAfter timestamp after which the authorization is valid
+    /// @param validBefore timestamp before which the authorization expires
+    /// @param nonce unique authorization nonce to prevent replay
+    /// @param v secp256k1 recovery id
+    /// @param r secp256k1 signature r
+    /// @param s secp256k1 signature s
+    function payForGuess(
+        uint256 roundId,
+        address payer,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external nonReentrant {
         require(roundId == currentRoundId, "Only current round");
 
         Round storage round = rounds[roundId];
         require(round.active, "Round not active");
-        require(msg.value == round.buyIn, "Incorrect buy-in");
 
-        round.pot += msg.value;
+        bool ok = paymentToken.transferWithAuthorization(
+            payer,
+            address(this),
+            round.buyIn,
+            validAfter,
+            validBefore,
+            nonce,
+            v,
+            r,
+            s
+        );
+
+        require(ok, "Authorization transfer failed");
+
+        round.pot += round.buyIn;
         round.guesses += 1;
 
-        emit GuessPaid(roundId, msg.sender, msg.value, round.pot, round.guesses);
+        emit GuessPaid(roundId, payer, round.buyIn, round.pot, round.guesses);
     }
 
     /// @notice Adjust the buy-in for the active round. Intended for TEE-driven pricing bumps when
@@ -106,8 +156,7 @@ contract HotColdGame is Ownable, ReentrancyGuard {
         round.active = false;
         round.winner = winner;
 
-        (bool success, ) = winner.call{value: payout}("");
-        require(success, "Payout failed");
+        require(paymentToken.transfer(winner, payout), "Payout failed");
 
         emit WinnerPaid(currentRoundId, winner, payout);
     }
@@ -148,8 +197,7 @@ contract HotColdGame is Ownable, ReentrancyGuard {
 
         round.pot -= amount;
 
-        (bool success, ) = to.call{value: amount}("");
-        require(success, "Withdraw failed");
+        require(paymentToken.transfer(to, amount), "Withdraw failed");
     }
 
     /// @notice Rotate the trusted enclave authority.

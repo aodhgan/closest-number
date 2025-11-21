@@ -11,16 +11,20 @@ router.get('/game', (req, res) => {
 });
 
 router.post('/game/guess', async (req, res) => {
-  const { guess, player, paymentTxHash } = req.body as { guess?: string; player?: string; paymentTxHash?: string };
+  const { guess, player, authorization } = req.body as {
+    guess?: string;
+    player?: string;
+    authorization?: unknown;
+  };
 
-  if (!guess || !player || !paymentTxHash) {
+  if (!guess || !player || !authorization) {
     return res
       .status(400)
-      .json({ success: false, error: 'guess, player, and paymentTxHash are required to record a guess' });
+      .json({ success: false, error: 'guess, player, and authorization are required to record a guess' });
   }
 
   try {
-    const result = await gameService.submitGuess({ guess, player, paymentTxHash });
+    const result = await gameService.submitGuess({ guess, player, authorization: authorization as any });
     res.json({
       success: true,
       round: gameService.getPublicState(),

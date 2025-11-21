@@ -17,6 +17,11 @@ export const MAX_PRICE_STEPS = parseInt(process.env.MAX_PRICE_STEPS || '6', 10);
 // Onchain integration
 export const HOT_COLD_CONTRACT_ADDRESS = (process.env.HOT_COLD_CONTRACT_ADDRESS as `0x${string}`) || null;
 export const CHAIN_ID = process.env.CHAIN_ID ? parseInt(process.env.CHAIN_ID, 10) : 84532;
+export const PAYMENT_TOKEN_ADDRESS = (process.env.PAYMENT_TOKEN_ADDRESS as `0x${string}`) || null;
+export const PAYMENT_TOKEN_NAME = process.env.PAYMENT_TOKEN_NAME || 'Mock3009';
+export const PAYMENT_TOKEN_SYMBOL = process.env.PAYMENT_TOKEN_SYMBOL || 'MCK';
+export const PAYMENT_TOKEN_VERSION = process.env.PAYMENT_TOKEN_VERSION || '1';
+export const TEE_PRIVATE_KEY = process.env.TEE_PRIVATE_KEY || null;
 
 // Legacy exports retained for compatibility with unused modules
 export const RPC_URL = process.env.RPC_URL || null;

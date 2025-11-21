@@ -45,6 +45,11 @@ export const CHAIN_ID = import.meta.env.VITE_CHAIN_ID
  */
 export const HOT_COLD_GAME_ADDRESS = import.meta.env.VITE_HOT_COLD_GAME_ADDRESS || '';
 
+export const PAYMENT_TOKEN_ADDRESS = import.meta.env.VITE_PAYMENT_TOKEN_ADDRESS || '';
+export const PAYMENT_TOKEN_NAME = import.meta.env.VITE_PAYMENT_TOKEN_NAME || 'Mock3009';
+export const PAYMENT_TOKEN_SYMBOL = import.meta.env.VITE_PAYMENT_TOKEN_SYMBOL || 'MCK';
+export const PAYMENT_TOKEN_VERSION = import.meta.env.VITE_PAYMENT_TOKEN_VERSION || '1';
+
 /**
  * Validate configuration on import
  * Why: We want to fail fast if required configuration is missing.

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
-import { Address, Hex, createPublicClient, decodeEventLog, http } from 'viem';
+import { Address, Hex, createPublicClient, createWalletClient, decodeEventLog, http } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { baseSepolia } from 'viem/chains';
 import {
   BASE_BUY_IN_WEI,
@@ -12,6 +13,11 @@ import {
   HOT_COLD_CONTRACT_ADDRESS,
   RPC_URL,
   CHAIN_ID,
+  PAYMENT_TOKEN_ADDRESS,
+  PAYMENT_TOKEN_NAME,
+  PAYMENT_TOKEN_SYMBOL,
+  PAYMENT_TOKEN_VERSION,
+  TEE_PRIVATE_KEY,
 } from '../config/constants';
 
 export interface GuessRecord {
@@ -50,6 +56,17 @@ interface GuessPayment {
   buyInWei: bigint;
 }
 
+export interface AuthorizationPayload {
+  roundId: string;
+  payer: Address;
+  validAfter: string;
+  validBefore: string;
+  nonce: Hex;
+  v: number;
+  r: Hex;
+  s: Hex;
+}
+
 interface OnchainRoundState {
   buyIn: bigint;
   pot: bigint;
@@ -74,6 +91,22 @@ const hotColdAbi = [
   },
   {
     type: 'function',
+    name: 'payForGuess',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'roundId', type: 'uint256' },
+      { name: 'payer', type: 'address' },
+      { name: 'validAfter', type: 'uint256' },
+      { name: 'validBefore', type: 'uint256' },
+      { name: 'nonce', type: 'bytes32' },
+      { name: 'v', type: 'uint8' },
+      { name: 'r', type: 'bytes32' },
+      { name: 's', type: 'bytes32' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
     name: 'currentRoundId',
     stateMutability: 'view',
     inputs: [],
@@ -92,10 +125,19 @@ const hotColdAbi = [
       { name: 'active', type: 'bool' },
     ],
   },
+  {
+    type: 'function',
+    name: 'paymentToken',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
 ] as const;
 
 const chain = CHAIN_ID === baseSepolia.id ? baseSepolia : undefined;
 const publicClient = RPC_URL ? createPublicClient({ chain, transport: http(RPC_URL) }) : null;
+const walletAccount = TEE_PRIVATE_KEY ? privateKeyToAccount(TEE_PRIVATE_KEY as Hex) : null;
+const walletClient = RPC_URL && walletAccount ? createWalletClient({ account: walletAccount, chain, transport: http(RPC_URL) }) : null;
 
 function clampDigits(value: number): number {
   if (Number.isNaN(value)) return TARGET_DIGITS;
@@ -187,14 +229,25 @@ class GameService {
     };
   }
 
-  private ensureOnchainClient(): { client: NonNullable<typeof publicClient>; address: Address } {
+  private ensureOnchainClient(): {
+    client: NonNullable<typeof publicClient>;
+    wallet: NonNullable<typeof walletClient>;
+    address: Address;
+    token: Address;
+  } {
     if (!publicClient || !RPC_URL) {
       throw new Error('RPC_URL must be configured to verify payments');
+    }
+    if (!walletClient) {
+      throw new Error('TEE_PRIVATE_KEY must be configured to submit payments');
     }
     if (!HOT_COLD_CONTRACT_ADDRESS) {
       throw new Error('HOT_COLD_CONTRACT_ADDRESS must be configured to verify payments');
     }
-    return { client: publicClient, address: HOT_COLD_CONTRACT_ADDRESS };
+    if (!PAYMENT_TOKEN_ADDRESS) {
+      throw new Error('PAYMENT_TOKEN_ADDRESS must be configured to verify payments');
+    }
+    return { client: publicClient, wallet: walletClient, address: HOT_COLD_CONTRACT_ADDRESS, token: PAYMENT_TOKEN_ADDRESS };
   }
 
   private async readRoundFromChain(roundId: bigint): Promise<OnchainRoundState> {
@@ -240,22 +293,18 @@ class GameService {
   public async submitGuess({
     guess,
     player,
-    paymentTxHash,
+    authorization,
   }: {
     guess: string;
     player: string;
-    paymentTxHash: string;
+    authorization: AuthorizationPayload;
   }): Promise<{ state: GameRoundState; guess: GuessRecord; payout?: { winner: string; amountWei: string } }> {
-    if (!paymentTxHash) {
-      throw new Error('paymentTxHash is required');
-    }
-
     const normalizedGuess = guess.trim();
     if (!/^\d+$/.test(normalizedGuess)) {
       throw new Error('Guess must be a numeric string');
     }
 
-    const payment = await this.verifyGuessPayment({ txHash: paymentTxHash, player });
+    const payment = await this.executeGuessPayment({ player, authorization });
 
     if (this.state.roundId !== payment.roundId.toString()) {
       await this.resetRoundForChain(payment.roundId);
@@ -305,7 +354,8 @@ class GameService {
     }
 
     this.state.guesses.unshift(guessRecord);
-    this.processedPayments.add(paymentTxHash.toLowerCase());
+    const nonceKey = `${authorization.payer.toLowerCase()}:${authorization.nonce.toLowerCase()}`;
+    this.processedPayments.add(nonceKey);
 
     return { state: this.state, guess: guessRecord, payout };
   }
@@ -324,34 +374,50 @@ class GameService {
     this.processedPayments.clear();
   }
 
-  private async verifyGuessPayment({
-    txHash,
+  private async executeGuessPayment({
     player,
+    authorization,
   }: {
-    txHash: string;
     player: string;
+    authorization: AuthorizationPayload;
   }): Promise<GuessPayment> {
-    if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
-      throw new Error('paymentTxHash must be a valid transaction hash');
+    const normalizedPlayer = player.toLowerCase();
+    if (authorization.payer.toLowerCase() !== normalizedPlayer) {
+      throw new Error('Authorization signer does not match player');
     }
-    const normalizedHash = txHash.toLowerCase();
-    if (this.processedPayments.has(normalizedHash)) {
-      throw new Error('Payment already used for a guess');
+    if (!authorization.nonce || !authorization.validAfter || !authorization.validBefore) {
+      throw new Error('Authorization is missing required fields');
     }
 
-    const { client, address } = this.ensureOnchainClient();
-    const receipt = await client.waitForTransactionReceipt({ hash: txHash as Hex });
+    const nonceKey = `${authorization.payer.toLowerCase()}:${authorization.nonce.toLowerCase()}`;
+    if (this.processedPayments.has(nonceKey)) {
+      throw new Error('Authorization already used for a guess');
+    }
+
+    const { client, wallet, address } = this.ensureOnchainClient();
+    const currentRoundId = (await client.readContract({ address, abi: hotColdAbi, functionName: 'currentRoundId' })) as bigint;
+    const roundId = authorization.roundId ? BigInt(authorization.roundId) : currentRoundId;
+
+    const txHash = await wallet.writeContract({
+      address,
+      abi: hotColdAbi,
+      functionName: 'payForGuess',
+      args: [
+        roundId,
+        authorization.payer,
+        BigInt(authorization.validAfter),
+        BigInt(authorization.validBefore),
+        authorization.nonce,
+        authorization.v,
+        authorization.r,
+        authorization.s,
+      ],
+    });
+
+    const receipt = await client.waitForTransactionReceipt({ hash: txHash });
 
     if (receipt.status !== 'success') {
-      throw new Error('Payment transaction failed or is not confirmed');
-    }
-
-    if (!receipt.to || receipt.to.toLowerCase() !== address.toLowerCase()) {
-      throw new Error('Payment was not sent to the HotColdGame contract');
-    }
-
-    if (receipt.from && receipt.from.toLowerCase() !== player.toLowerCase()) {
-      throw new Error('Payment sender does not match provided player');
+      throw new Error('Payment transaction failed or reverted');
     }
 
     const relevantLogs = receipt.logs.filter((log) => log.address.toLowerCase() === address.toLowerCase());
@@ -360,7 +426,7 @@ class GameService {
       try {
         const decoded = decodeEventLog({ abi: hotColdAbi, data: log.data, topics: log.topics });
         if (decoded.eventName === 'GuessPaid') {
-          const { roundId, player: paidPlayer, amount, potAfter, guessCount } = decoded.args as {
+          const { roundId: paidRoundId, player: paidPlayer, amount, potAfter, guessCount } = decoded.args as {
             roundId: bigint;
             player: Address;
             amount: bigint;
@@ -372,9 +438,9 @@ class GameService {
             continue;
           }
 
-          const onchain = await this.readRoundFromChain(roundId);
+          const onchain = await this.readRoundFromChain(paidRoundId);
           return {
-            roundId,
+            roundId: paidRoundId,
             amount,
             potAfter,
             guessCount,
@@ -388,7 +454,7 @@ class GameService {
       }
     }
 
-    throw new Error('GuessPaid event not found for provided transaction');
+    throw new Error('GuessPaid event not found for submitted authorization');
   }
 
   public getPublicState() {
@@ -406,6 +472,8 @@ class GameService {
       potWei: potWei.toString(),
       buyInEth: formatEth(buyInWei),
       potEth: formatEth(potWei),
+      paymentTokenSymbol: PAYMENT_TOKEN_SYMBOL,
+      paymentTokenAddress: PAYMENT_TOKEN_ADDRESS,
       sealedTargetHash: targetDigest,
       winner: winner
         ? {
