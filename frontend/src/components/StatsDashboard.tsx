@@ -22,6 +22,20 @@ interface Stats {
   transfers: { totalTransfers: string; totalTransfersEth: string } | null;
 }
 
+/**
+ * Truncate a numeric string to a fixed number of decimal places without rounding.
+ * Why: Prevent extremely long decimal values from overflowing the UI.
+ */
+function truncateDecimals(value: string, decimalPlaces = 5): string {
+  const [integerPart, fractionalPart] = value.split('.');
+
+  if (!fractionalPart || fractionalPart.length <= decimalPlaces) {
+    return value;
+  }
+
+  return `${integerPart}.${fractionalPart.slice(0, decimalPlaces)}`;
+}
+
 interface StatsDashboardProps {
   className?: string;
   refreshInterval?: number; // in milliseconds
@@ -112,7 +126,7 @@ export function StatsDashboard({
           <div className="stat-value">
             {stats.deposits ? (
               <>
-                <div className="stat-eth">{stats.deposits.totalDepositsEth} ETH</div>
+                <div className="stat-eth">{truncateDecimals(stats.deposits.totalDepositsEth)} ETH</div>
                 <div className="stat-wei">{stats.deposits.totalDeposits} wei</div>
               </>
             ) : (
@@ -126,7 +140,9 @@ export function StatsDashboard({
           <div className="stat-value">
             {stats.withdrawals ? (
               <>
-                <div className="stat-eth">{stats.withdrawals.totalWithdrawalsEth} ETH</div>
+                <div className="stat-eth">
+                  {truncateDecimals(stats.withdrawals.totalWithdrawalsEth)} ETH
+                </div>
                 <div className="stat-wei">{stats.withdrawals.totalWithdrawals} wei</div>
               </>
             ) : (
@@ -140,7 +156,7 @@ export function StatsDashboard({
           <div className="stat-value">
             {stats.transfers ? (
               <>
-                <div className="stat-eth">{stats.transfers.totalTransfersEth} ETH</div>
+                <div className="stat-eth">{truncateDecimals(stats.transfers.totalTransfersEth)} ETH</div>
                 <div className="stat-wei">{stats.transfers.totalTransfers} wei</div>
               </>
             ) : (
