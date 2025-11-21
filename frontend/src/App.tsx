@@ -1,109 +1,224 @@
-/**
- * @file App.tsx
- * @description Main application component
- * 
- * This is the root component of the application. It sets up:
- * - Privy authentication provider
- * - Main layout and routing
- * - All major feature components
- * 
- * Why this structure:
- * - PrivyProvider wraps the entire app to enable authentication everywhere
- * - Clean separation of concerns with dedicated components
- * - Responsive layout that works on different screen sizes
- */
-
-import { PrivyProvider } from '@privy-io/react-auth';
+import { useEffect, useState } from 'react';
+import { PrivyProvider, usePrivy } from '@privy-io/react-auth';
 import { baseSepolia } from 'viem/chains';
+import './App.css';
 import { PRIVY_APP_ID } from './config/constants';
 import { ConnectionStatus } from './components/ConnectionStatus';
-import { StatsDashboard } from './components/StatsDashboard';
-import { DepositForm } from './components/DepositForm';
-import { TransferForm } from './components/TransferForm';
-import { WithdrawForm } from './components/WithdrawForm';
-import './App.css';
+import { fetchGameState, resetRound, submitGuess } from './services/api';
+
+interface Guess {
+  player: string;
+  guess: string;
+  stakeEth: string;
+  hint: string;
+  createdAt: string;
+  matches: number;
+  distance: number;
+  priceStepAtGuess: number;
+}
+
+interface RoundState {
+  roundId: string;
+  digits: number;
+  sealedTargetHash: string;
+  buyInEth: string;
+  potEth: string;
+  priceSteps: number;
+  nearMatchThreshold: number;
+  priceIncreaseBps: number;
+  distanceMetric: string;
+  startedAt: string;
+  winner?: Guess & { payoutWei: string };
+  guesses: Guess[];
+}
+
+function GameScreen() {
+  const { ready, authenticated, user } = usePrivy();
+  const [round, setRound] = useState<RoundState | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [guessValue, setGuessValue] = useState('');
+  const [stakeValue, setStakeValue] = useState('0.001');
+
+  useEffect(() => {
+    refreshState();
+  }, []);
+
+  async function refreshState() {
+    try {
+      const response = await fetchGameState();
+      setRound(response.round);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load game');
+    }
+  }
+
+  async function handleGuess(e: React.FormEvent) {
+    e.preventDefault();
+    if (!round) return;
+
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await submitGuess({
+        guess: guessValue,
+        stake: stakeValue,
+        player: user?.wallet?.address || 'anonymous',
+      });
+      setRound(result.round);
+      setGuessValue('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to submit guess');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleReset() {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await resetRound();
+      setRound(response.round);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reset round');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="game-shell">
+      <div className="panel header-panel">
+        <div>
+          <p className="eyebrow">TEE-sealed hot/cold lottery</p>
+          <h1>Guess the enclave number</h1>
+          <p>
+            A verifiable enclave sealed a target number and returns deterministic hints after each guess.
+            Buy-ins rise automatically when guesses get close; the first exact match takes the pot.
+          </p>
+        </div>
+        <div className="round-meta">
+          <div>
+            <span className="label">Round</span>
+            <strong>{round?.roundId.slice(0, 8) || '—'}</strong>
+          </div>
+          <div>
+            <span className="label">Digits</span>
+            <strong>{round?.digits ?? '—'}</strong>
+          </div>
+          <div>
+            <span className="label">Metric</span>
+            <strong>{round?.distanceMetric ?? '—'}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid">
+        <div className="panel stat">
+          <span className="label">Current buy-in</span>
+          <h2>{round?.buyInEth ? `${round.buyInEth} ETH` : '—'}</h2>
+          <p className="muted">Auto-steps {round?.priceIncreaseBps}% when matches ≥ {round?.nearMatchThreshold}</p>
+        </div>
+        <div className="panel stat">
+          <span className="label">Pot</span>
+          <h2>{round?.potEth ? `${round.potEth} ETH` : '—'}</h2>
+          <p className="muted">Raised by every paid guess</p>
+        </div>
+        <div className="panel stat">
+          <span className="label">Sealed target hash</span>
+          <code className="hash">{round?.sealedTargetHash || '—'}</code>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <h3>Submit guess</h3>
+            <p className="muted">Pay the buy-in with your guess; the enclave returns a deterministic hint.</p>
+          </div>
+          <button className="ghost" onClick={handleReset} disabled={loading}>
+            Reset round
+          </button>
+        </div>
+        <form className="guess-form" onSubmit={handleGuess}>
+          <label>
+            Guess ({round?.digits || 0} digits)
+            <input
+              required
+              value={guessValue}
+              onChange={(e) => setGuessValue(e.target.value)}
+              placeholder="0000..."
+              pattern={`\\d{${round?.digits || 1}}`}
+            />
+          </label>
+          <label>
+            Stake (ETH)
+            <input required value={stakeValue} onChange={(e) => setStakeValue(e.target.value)} />
+          </label>
+          <button type="submit" disabled={loading || !ready || !authenticated}>
+            {loading ? 'Submitting...' : 'Send guess'}
+          </button>
+        </form>
+        {!ready && <p className="muted">Waiting for Privy to initialize…</p>}
+        {!authenticated && ready && <p className="muted">Login with Privy to attach your wallet to guesses.</p>}
+        {error && <p className="error">{error}</p>}
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">
+          <h3>Guess stream</h3>
+          <p className="muted">Newest guesses first with deterministic hot/cold hints.</p>
+        </div>
+        {round?.guesses?.length ? (
+          <div className="guess-list">
+            {round.guesses.map((g) => (
+              <div key={`${g.player}-${g.createdAt}`} className="guess-row">
+                <div>
+                  <p className="eyebrow">{g.player.slice(0, 8)}…</p>
+                  <strong>{g.guess}</strong>
+                </div>
+                <div className="hint">
+                  <span>{g.hint}</span>
+                  <span className="muted">stake {g.stakeEth}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">No guesses yet—be the first.</p>
+        )}
+      </div>
+
+      {round?.winner && (
+        <div className="panel winner">
+          <h3>Winner sealed</h3>
+          <p>
+            {round.winner.player} matched the target with {round.winner.guess} and takes the pot ({round.winner.stakeEth}
+            ETH).
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function App() {
   return (
     <PrivyProvider
       appId={PRIVY_APP_ID}
       config={{
-        // Configure login methods
-        // Why: We support both wallet and email login for flexibility.
-        // Users can choose their preferred authentication method.
         loginMethods: ['wallet', 'email'],
-        
-        // Appearance customization
-        // Why: Makes the Privy UI match our app's style.
-        appearance: {
-          theme: 'light',
-          accentColor: '#676FFF',
-          logo: 'https://your-logo-url.com/logo.png', // Optional: add your logo
-        },
-        
-        // Embedded wallet configuration
-        // Why: Privy's embedded wallet allows users without external wallets
-        // to still interact with the app.
-        embeddedWallets: {
-          createOnLogin: 'users-without-wallets',
-        },
-        
-        // Default chain - use Base Sepolia
-        // Why: We're using Base Sepolia testnet for this example (where the contract is deployed).
-        // Users can switch chains if needed, but Base Sepolia is the default.
         defaultChain: baseSepolia,
+        embeddedWallets: { createOnLogin: 'users-without-wallets' },
       }}
     >
       <div className="app">
-        <header className="app-header">
-          <h1>Escrow TEE Frontend</h1>
-          <p className="subtitle">
-            Interact with the Escrow TEE server using Privy authentication
-          </p>
-        </header>
-
-        <main className="app-main">
-          <section className="connection-section">
-            <ConnectionStatus />
-          </section>
-
-          <section className="stats-section">
-            <StatsDashboard />
-          </section>
-
-          <section className="deposit-section">
-            <DepositForm />
-          </section>
-
-          <section className="transfer-section">
-            <TransferForm />
-          </section>
-
-          <section className="withdraw-section">
-            <WithdrawForm />
-          </section>
-        </main>
-
-        <footer className="app-footer">
-          <p>
-            Built with{' '}
-            <a href="https://vitejs.dev" target="_blank" rel="noopener noreferrer">
-              Vite
-            </a>
-            ,{' '}
-            <a href="https://react.dev" target="_blank" rel="noopener noreferrer">
-              React
-            </a>
-            , and{' '}
-            <a href="https://privy.io" target="_blank" rel="noopener noreferrer">
-              Privy
-            </a>
-          </p>
-        </footer>
+        <ConnectionStatus />
+        <GameScreen />
       </div>
     </PrivyProvider>
   );
 }
 
 export default App;
-
