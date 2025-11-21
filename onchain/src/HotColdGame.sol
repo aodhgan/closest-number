@@ -27,6 +27,9 @@ contract HotColdGame is Ownable, ReentrancyGuard {
     /// @dev Emitted when the coordinator settles the winner.
     event WinnerPaid(uint256 indexed roundId, address indexed winner, uint256 payout);
 
+    /// @dev Emitted when the trusted enclave/TEE address changes.
+    event TeeUpdated(address indexed previousTee, address indexed newTee);
+
     struct Round {
         uint256 buyIn; // price per guess in wei
         uint256 pot; // accumulated ETH for this round
@@ -38,14 +41,27 @@ contract HotColdGame is Ownable, ReentrancyGuard {
     uint256 public currentRoundId;
     mapping(uint256 => Round) public rounds;
 
+    /// @notice The only address allowed to update pricing and settle rounds.
+    address public tee;
+
+    modifier onlyTee() {
+        require(msg.sender == tee, "Caller is not tee");
+        _;
+    }
+
     /// @param initialBuyInWei starting buy-in for the first round
-    constructor(uint256 initialBuyInWei) {
+    /// @param teeAddress trusted enclave/TEE controller
+    constructor(uint256 initialBuyInWei, address teeAddress) {
         require(initialBuyInWei > 0, "Buy-in must be > 0");
+        require(teeAddress != address(0), "TEE address required");
+
+        tee = teeAddress;
 
         currentRoundId = 1;
         rounds[1] = Round({buyIn: initialBuyInWei, pot: 0, guesses: 0, winner: address(0), active: true});
 
         emit RoundStarted(1, initialBuyInWei);
+        emit TeeUpdated(address(0), teeAddress);
     }
 
     /// @notice Prepay for a guess in the active round. The enclave/backend should only accept guesses
@@ -67,7 +83,7 @@ contract HotColdGame is Ownable, ReentrancyGuard {
     /// @notice Adjust the buy-in for the active round. Intended for TEE-driven pricing bumps when
     /// guesses get close.
     /// @param newBuyInWei new price per guess in wei
-    function updateBuyIn(uint256 newBuyInWei) external onlyOwner {
+    function updateBuyIn(uint256 newBuyInWei) external onlyTee {
         require(newBuyInWei > 0, "Buy-in must be > 0");
 
         Round storage round = rounds[currentRoundId];
@@ -80,7 +96,7 @@ contract HotColdGame is Ownable, ReentrancyGuard {
     /// @notice Settle the current round and pay the winner the entire pot. The next round can be
     /// opened after this completes.
     /// @param winner address that produced the exact match
-    function settleWinner(address payable winner) external onlyOwner nonReentrant {
+    function settleWinner(address payable winner) external onlyTee nonReentrant {
         Round storage round = rounds[currentRoundId];
         require(round.active, "Round not active");
         require(winner != address(0), "Winner required");
@@ -99,7 +115,7 @@ contract HotColdGame is Ownable, ReentrancyGuard {
     /// @notice Start a fresh round after the previous round has been settled or manually closed.
     /// @param buyInWei price per guess in wei for the new round
     /// @return newRoundId the identifier for the newly started round
-    function startNextRound(uint256 buyInWei) external onlyOwner returns (uint256 newRoundId) {
+    function startNextRound(uint256 buyInWei) external onlyTee returns (uint256 newRoundId) {
         require(buyInWei > 0, "Buy-in must be > 0");
         require(!rounds[currentRoundId].active, "Current round still active");
 
@@ -112,7 +128,7 @@ contract HotColdGame is Ownable, ReentrancyGuard {
 
     /// @notice Emergency close for the active round without paying out, keeping funds in contract
     /// until the coordinator decides how to handle them.
-    function closeActiveRound() external onlyOwner {
+    function closeActiveRound() external onlyTee {
         Round storage round = rounds[currentRoundId];
         require(round.active, "Round not active");
         round.active = false;
@@ -122,7 +138,7 @@ contract HotColdGame is Ownable, ReentrancyGuard {
     /// @dev Ensures we never siphon funds from an active round and keeps accounting accurate.
     /// @param to recipient address
     /// @param amount amount to withdraw in wei
-    function withdrawIdle(address payable to, uint256 amount) external onlyOwner nonReentrant {
+    function withdrawIdle(address payable to, uint256 amount) external onlyTee nonReentrant {
         require(to != address(0), "Invalid recipient");
         require(amount > 0, "Amount must be > 0");
 
@@ -134,5 +150,14 @@ contract HotColdGame is Ownable, ReentrancyGuard {
 
         (bool success, ) = to.call{value: amount}("");
         require(success, "Withdraw failed");
+    }
+
+    /// @notice Rotate the trusted enclave authority.
+    /// @param newTee address of the new enclave signer
+    function updateTee(address newTee) external onlyOwner {
+        require(newTee != address(0), "TEE address required");
+        address previous = tee;
+        tee = newTee;
+        emit TeeUpdated(previous, newTee);
     }
 }

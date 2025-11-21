@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { PrivyProvider, usePrivy } from '@privy-io/react-auth';
 import { baseSepolia } from 'viem/chains';
 import './App.css';
-import { PRIVY_APP_ID } from './config/constants';
+import { HOT_COLD_GAME_ADDRESS, PRIVY_APP_ID } from './config/constants';
 import { ConnectionStatus } from './components/ConnectionStatus';
 import { fetchGameState, resetRound, submitGuess } from './services/api';
 
@@ -38,7 +38,7 @@ function GameScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [guessValue, setGuessValue] = useState('');
-  const [stakeValue, setStakeValue] = useState('0.001');
+  const [paymentTxHash, setPaymentTxHash] = useState('');
 
   useEffect(() => {
     refreshState();
@@ -62,11 +62,12 @@ function GameScreen() {
       setError(null);
       const result = await submitGuess({
         guess: guessValue,
-        stake: stakeValue,
         player: user?.wallet?.address || 'anonymous',
+        paymentTxHash,
       });
       setRound(result.round);
       setGuessValue('');
+      setPaymentTxHash('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit guess');
     } finally {
@@ -153,8 +154,14 @@ function GameScreen() {
             />
           </label>
           <label>
-            Stake (ETH)
-            <input required value={stakeValue} onChange={(e) => setStakeValue(e.target.value)} />
+            Payment transaction hash
+            <input
+              required
+              value={paymentTxHash}
+              onChange={(e) => setPaymentTxHash(e.target.value)}
+              placeholder="0x..."
+              pattern="0x[0-9a-fA-F]{64}"
+            />
           </label>
           <button type="submit" disabled={loading || !ready || !authenticated}>
             {loading ? 'Submitting...' : 'Send guess'}
@@ -162,6 +169,11 @@ function GameScreen() {
         </form>
         {!ready && <p className="muted">Waiting for Privy to initialize…</p>}
         {!authenticated && ready && <p className="muted">Login with Privy to attach your wallet to guesses.</p>}
+        <p className="muted">
+          Pay the current buy-in to the HotColdGame contract
+          {HOT_COLD_GAME_ADDRESS ? ` (${HOT_COLD_GAME_ADDRESS})` : ''} using <code>payForGuess(roundId)</code>, then paste the
+          transaction hash above to reveal your deterministic hint.
+        </p>
         {error && <p className="error">{error}</p>}
       </div>
 

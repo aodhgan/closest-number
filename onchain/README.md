@@ -1,10 +1,10 @@
 # HotColdGame Contract
 
-A lightweight on-chain companion for the hot–cold enclave lottery. The contract collects per-guess buy-ins, lets the coordinator adjust pricing as guesses heat up, and pays the full pot to the first winner recorded by the enclave.
+A lightweight on-chain companion for the hot–cold enclave lottery. The contract collects per-guess buy-ins, lets the TEE coordinator adjust pricing as guesses heat up, and pays the full pot to the first winner recorded by the enclave.
 
 ## Overview
 - **payForGuess**: Players prepay the current buy-in before submitting their off-chain guess.
-- **updateBuyIn**: The owner (expected to be the enclave key or its controller) can raise/lower the buy-in for the active round.
+- **updateBuyIn**: The TEE controller can raise/lower the buy-in for the active round.
 - **settleWinner**: Pays the entire pot to the provided winner and closes the round.
 - **startNextRound**: Opens a fresh round after the active one is closed or settled.
 - **closeActiveRound + withdrawIdle**: Emergency controls to pause payouts and recover idle funds without touching an active pot.
@@ -15,9 +15,9 @@ The contract is intentionally narrow: all game logic and hinting lives in the TE
 
 ### Constructor
 ```solidity
-constructor(uint256 initialBuyInWei)
+constructor(uint256 initialBuyInWei, address teeAddress)
 ```
-Creates round 1 as active with the specified buy-in.
+Creates round 1 as active with the specified buy-in and sets the trusted enclave/TEE signer that controls pricing and settlement.
 
 ### payForGuess
 ```solidity
@@ -29,33 +29,39 @@ function payForGuess(uint256 roundId) external payable
 
 ### updateBuyIn
 ```solidity
-function updateBuyIn(uint256 newBuyInWei) external onlyOwner
+function updateBuyIn(uint256 newBuyInWei) external onlyTee
 ```
 Updates the price for the active round. Useful when the enclave marks a guess as "near" and wants to throttle brute force.
 
 ### settleWinner
 ```solidity
-function settleWinner(address payable winner) external onlyOwner
+function settleWinner(address payable winner) external onlyTee
 ```
 Pays the entire active pot to the winner, marks the round inactive, and records the winner address.
 
 ### startNextRound
 ```solidity
-function startNextRound(uint256 buyInWei) external onlyOwner returns (uint256)
+function startNextRound(uint256 buyInWei) external onlyTee returns (uint256)
 ```
 Starts a new round after the prior one is inactive.
 
 ### closeActiveRound
 ```solidity
-function closeActiveRound() external onlyOwner
+function closeActiveRound() external onlyTee
 ```
 Closes the current round without payout (e.g., operational pause). Funds remain in the contract until withdrawn via `withdrawIdle`.
 
 ### withdrawIdle
 ```solidity
-function withdrawIdle(address payable to, uint256 amount) external onlyOwner
+function withdrawIdle(address payable to, uint256 amount) external onlyTee
 ```
 Allows recovery of idle pot funds after a manual close while keeping accounting consistent.
+
+### updateTee
+```solidity
+function updateTee(address newTee) external onlyOwner
+```
+Allows the owner to rotate the trusted TEE/controller address while keeping admin separation.
 
 ## Deployment
 
@@ -70,6 +76,7 @@ From `onchain/`:
 ./scripts/deploy.sh \
   --rpc-url <RPC_URL> \
   --private-key <PRIVATE_KEY> \
+  --tee-address <TEE_ADDRESS> \
   --buy-in-wei <INITIAL_BUY_IN> \
   --etherscan-api-key <API_KEY> \  # optional for verification
   --verify                         # optional
@@ -84,7 +91,7 @@ Use the helper script to bump the active buy-in:
   --game-address <HOT_COLD_GAME_ADDRESS> \
   --new-buy-in-wei <NEW_PRICE> \
   --rpc-url <RPC_URL> \
-  --private-key <OWNER_PRIVATE_KEY>
+  --private-key <TEE_PRIVATE_KEY>
 ```
 
 ### Manual forge commands

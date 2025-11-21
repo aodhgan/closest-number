@@ -7,6 +7,7 @@ import {HotColdGame} from "../src/HotColdGame.sol";
 contract HotColdGameTest is Test {
     HotColdGame public game;
     address public owner = address(this);
+    address public tee = address(0x99);
     address public player1 = address(0x1);
     address public player2 = address(0x2);
     address public winner = address(0x3);
@@ -23,7 +24,7 @@ contract HotColdGameTest is Test {
     event WinnerPaid(uint256 indexed roundId, address indexed winner, uint256 payout);
 
     function setUp() public {
-        game = new HotColdGame(0.01 ether);
+        game = new HotColdGame(0.01 ether, tee);
     }
 
     function testConstructorInitializesRound() public {
@@ -35,6 +36,7 @@ contract HotColdGameTest is Test {
         assertTrue(active);
         assertEq(game.currentRoundId(), 1);
         assertEq(game.owner(), owner);
+        assertEq(game.tee(), tee);
     }
 
     function testPayForGuessAccumulatesPot() public {
@@ -70,15 +72,27 @@ contract HotColdGameTest is Test {
 
     function testUpdateBuyInOnlyOwner() public {
         vm.prank(player1);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(bytes("Caller is not tee"));
         game.updateBuyIn(0.02 ether);
     }
 
     function testUpdateBuyInChangesPriceAndEmits() public {
+        vm.prank(tee);
         vm.expectEmit(true, false, false, true);
         emit BuyInUpdated(1, 0.02 ether);
         game.updateBuyIn(0.02 ether);
 
+        (uint256 buyIn,,,,) = game.rounds(1);
+        assertEq(buyIn, 0.02 ether);
+    }
+
+    function testOwnerCanRotateTee() public {
+        address newTee = address(0xabc);
+        game.updateTee(newTee);
+        assertEq(game.tee(), newTee);
+
+        vm.prank(newTee);
+        game.updateBuyIn(0.02 ether);
         (uint256 buyIn,,,,) = game.rounds(1);
         assertEq(buyIn, 0.02 ether);
     }
@@ -96,6 +110,7 @@ contract HotColdGameTest is Test {
 
         vm.expectEmit(true, true, false, true);
         emit WinnerPaid(1, winner, 0.02 ether);
+        vm.prank(tee);
         game.settleWinner(payable(winner));
 
         (, uint256 pot, , address roundWinner, bool active) = game.rounds(1);
@@ -107,6 +122,7 @@ contract HotColdGameTest is Test {
 
     function testCannotSettleWithZeroAddress() public {
         vm.expectRevert(bytes("Winner required"));
+        vm.prank(tee);
         game.settleWinner(payable(address(0)));
     }
 
@@ -115,6 +131,7 @@ contract HotColdGameTest is Test {
         vm.prank(player1);
         game.payForGuess{value: 0.01 ether}(1);
 
+        vm.prank(tee);
         game.settleWinner(payable(winner));
 
         vm.prank(player1);
@@ -124,11 +141,13 @@ contract HotColdGameTest is Test {
 
     function testStartNextRoundRequiresInactive() public {
         vm.expectRevert(bytes("Current round still active"));
+        vm.prank(tee);
         game.startNextRound(0.01 ether);
     }
 
     function testStartNextRoundAfterSettlement() public {
         game.closeActiveRound();
+        vm.prank(tee);
         uint256 newId = game.startNextRound(0.05 ether);
 
         assertEq(newId, 2);
@@ -147,12 +166,15 @@ contract HotColdGameTest is Test {
         vm.prank(player1);
         game.payForGuess{value: 0.01 ether}(1);
 
+        vm.prank(tee);
         game.closeActiveRound();
 
         vm.expectRevert(bytes("Insufficient idle balance"));
+        vm.prank(tee);
         game.withdrawIdle(payable(owner), 0.02 ether);
 
         uint256 ownerBalanceBefore = owner.balance;
+        vm.prank(tee);
         game.withdrawIdle(payable(owner), 0.01 ether);
 
         (, uint256 pot,,,) = game.rounds(1);

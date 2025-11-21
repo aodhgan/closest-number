@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import { Address, Hex, createPublicClient, decodeEventLog, http } from 'viem';
+import { baseSepolia } from 'viem/chains';
 import {
   BASE_BUY_IN_WEI,
   MAX_PRICE_STEPS,
@@ -7,6 +9,9 @@ import {
   NEAR_MATCH_THRESHOLD,
   PRICE_INCREASE_BPS,
   TARGET_DIGITS,
+  HOT_COLD_CONTRACT_ADDRESS,
+  RPC_URL,
+  CHAIN_ID,
 } from '../config/constants';
 
 export interface GuessRecord {
@@ -37,7 +42,60 @@ export interface GameRoundState {
   targetDigest: string;
 }
 
+interface GuessPayment {
+  roundId: bigint;
+  amount: bigint;
+  potAfter: bigint;
+  guessCount: bigint;
+  buyInWei: bigint;
+}
+
+interface OnchainRoundState {
+  buyIn: bigint;
+  pot: bigint;
+  guesses: bigint;
+  winner: Address;
+  active: boolean;
+}
+
 const TEN = BigInt(10);
+
+const hotColdAbi = [
+  {
+    type: 'event',
+    name: 'GuessPaid',
+    inputs: [
+      { name: 'roundId', type: 'uint256', indexed: true },
+      { name: 'player', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'potAfter', type: 'uint256', indexed: false },
+      { name: 'guessCount', type: 'uint256', indexed: false },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'currentRoundId',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'rounds',
+    stateMutability: 'view',
+    inputs: [{ name: '', type: 'uint256' }],
+    outputs: [
+      { name: 'buyIn', type: 'uint256' },
+      { name: 'pot', type: 'uint256' },
+      { name: 'guesses', type: 'uint256' },
+      { name: 'winner', type: 'address' },
+      { name: 'active', type: 'bool' },
+    ],
+  },
+] as const;
+
+const chain = CHAIN_ID === baseSepolia.id ? baseSepolia : undefined;
+const publicClient = RPC_URL ? createPublicClient({ chain, transport: http(RPC_URL) }) : null;
 
 function clampDigits(value: number): number {
   if (Number.isNaN(value)) return TARGET_DIGITS;
@@ -97,33 +155,76 @@ function formatEth(amountWei: bigint): string {
 class GameService {
   private state: GameRoundState;
 
+  private processedPayments: Set<string> = new Set();
+
   constructor() {
     this.state = this.createRound();
+    void this.trySyncFromChain();
   }
 
-  private createRound(): GameRoundState {
+  private createRound(overrides: Partial<GameRoundState> = {}): GameRoundState {
     const digits = clampDigits(TARGET_DIGITS);
     const target = randomDigits(digits);
-    const roundId = crypto.randomUUID();
-    const sealedHash = sealTarget(roundId, target);
-    const buyInWei = parseWei(BASE_BUY_IN_WEI);
+    const roundId = overrides.roundId ?? crypto.randomUUID();
+    const buyInWei = overrides.buyInWei ?? parseWei(BASE_BUY_IN_WEI);
+    const sealedHash = sealTarget(roundId, overrides.targetSecret ?? target);
 
     return {
       roundId,
       digits,
       sealedHash,
-      targetSecret: target,
+      targetSecret: overrides.targetSecret ?? target,
       buyInWei,
-      potWei: BigInt(0),
-      guesses: [],
-      priceSteps: 0,
-      nearMatchThreshold: NEAR_MATCH_THRESHOLD,
-      priceIncreaseBps: PRICE_INCREASE_BPS,
+      potWei: overrides.potWei ?? BigInt(0),
+      guesses: overrides.guesses ?? [],
+      priceSteps: overrides.priceSteps ?? 0,
+      nearMatchThreshold: overrides.nearMatchThreshold ?? NEAR_MATCH_THRESHOLD,
+      priceIncreaseBps: overrides.priceIncreaseBps ?? PRICE_INCREASE_BPS,
       distanceMetric: 'exact-position-matches',
-      startedAt: new Date().toISOString(),
-      targetDigest: sealedHash,
-      winner: undefined,
+      startedAt: overrides.startedAt ?? new Date().toISOString(),
+      targetDigest: overrides.targetDigest ?? sealedHash,
+      winner: overrides.winner,
     };
+  }
+
+  private ensureOnchainClient(): { client: NonNullable<typeof publicClient>; address: Address } {
+    if (!publicClient || !RPC_URL) {
+      throw new Error('RPC_URL must be configured to verify payments');
+    }
+    if (!HOT_COLD_CONTRACT_ADDRESS) {
+      throw new Error('HOT_COLD_CONTRACT_ADDRESS must be configured to verify payments');
+    }
+    return { client: publicClient, address: HOT_COLD_CONTRACT_ADDRESS };
+  }
+
+  private async readRoundFromChain(roundId: bigint): Promise<OnchainRoundState> {
+    const { client, address } = this.ensureOnchainClient();
+    const result = await client.readContract({
+      address,
+      abi: hotColdAbi,
+      functionName: 'rounds',
+      args: [roundId],
+    });
+    const [buyIn, pot, guesses, winner, active] = result as unknown as [bigint, bigint, bigint, Address, boolean];
+    return { buyIn, pot, guesses, winner, active };
+  }
+
+  private async trySyncFromChain() {
+    try {
+      const { client, address } = this.ensureOnchainClient();
+      const chainRoundId = await client.readContract({ address, abi: hotColdAbi, functionName: 'currentRoundId' });
+      const onchainRound = await this.readRoundFromChain(chainRoundId as bigint);
+      this.state = this.createRound({
+        roundId: (chainRoundId as bigint).toString(),
+        buyInWei: onchainRound.buyIn,
+        potWei: onchainRound.pot,
+        guesses: [],
+      });
+      this.processedPayments.clear();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('On-chain sync skipped:', (err as Error).message);
+    }
   }
 
   public getState(): GameRoundState {
@@ -131,36 +232,47 @@ class GameService {
   }
 
   public resetRound(): GameRoundState {
+    this.processedPayments.clear();
     this.state = this.createRound();
     return this.state;
   }
 
-  public submitGuess({
+  public async submitGuess({
     guess,
     player,
-    stakeWei,
+    paymentTxHash,
   }: {
     guess: string;
     player: string;
-    stakeWei: string;
-  }): { state: GameRoundState; guess: GuessRecord; payout?: { winner: string; amountWei: string } } {
-    if (this.state.winner) {
-      throw new Error('Round already settled');
+    paymentTxHash: string;
+  }): Promise<{ state: GameRoundState; guess: GuessRecord; payout?: { winner: string; amountWei: string } }> {
+    if (!paymentTxHash) {
+      throw new Error('paymentTxHash is required');
     }
 
     const normalizedGuess = guess.trim();
     if (!/^\d+$/.test(normalizedGuess)) {
       throw new Error('Guess must be a numeric string');
     }
+
+    const payment = await this.verifyGuessPayment({ txHash: paymentTxHash, player });
+
+    if (this.state.roundId !== payment.roundId.toString()) {
+      await this.resetRoundForChain(payment.roundId);
+    }
+
+    if (this.state.winner) {
+      throw new Error('Round already settled');
+    }
+
     if (normalizedGuess.length !== this.state.digits) {
       throw new Error(`Guess must be exactly ${this.state.digits} digits long`);
     }
 
-    const stake = parseWei(stakeWei);
-    if (stake < this.state.buyInWei) {
-      throw new Error(`Stake must be at least current buy-in of ${formatEth(this.state.buyInWei)} ETH`);
-    }
+    this.state.buyInWei = payment.buyInWei;
+    this.state.potWei = payment.potAfter;
 
+    const stake = payment.amount;
     const matches = computeMatches(this.state.targetSecret, normalizedGuess);
     const distance = this.state.digits - matches;
     const hint = `${matches}/${this.state.digits} digits in place`;
@@ -175,8 +287,6 @@ class GameService {
       createdAt: new Date().toISOString(),
       priceStepAtGuess: this.state.priceSteps,
     };
-
-    this.state.potWei += stake;
 
     let payout: { winner: string; amountWei: string } | undefined;
 
@@ -195,8 +305,90 @@ class GameService {
     }
 
     this.state.guesses.unshift(guessRecord);
+    this.processedPayments.add(paymentTxHash.toLowerCase());
 
     return { state: this.state, guess: guessRecord, payout };
+  }
+
+  private async resetRoundForChain(roundId: bigint) {
+    const onchain = await this.readRoundFromChain(roundId);
+    this.state = this.createRound({
+      roundId: roundId.toString(),
+      buyInWei: onchain.buyIn,
+      potWei: onchain.pot,
+      guesses: [],
+      priceSteps: 0,
+      startedAt: new Date().toISOString(),
+      winner: undefined,
+    });
+    this.processedPayments.clear();
+  }
+
+  private async verifyGuessPayment({
+    txHash,
+    player,
+  }: {
+    txHash: string;
+    player: string;
+  }): Promise<GuessPayment> {
+    if (!/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+      throw new Error('paymentTxHash must be a valid transaction hash');
+    }
+    const normalizedHash = txHash.toLowerCase();
+    if (this.processedPayments.has(normalizedHash)) {
+      throw new Error('Payment already used for a guess');
+    }
+
+    const { client, address } = this.ensureOnchainClient();
+    const receipt = await client.waitForTransactionReceipt({ hash: txHash as Hex });
+
+    if (receipt.status !== 'success') {
+      throw new Error('Payment transaction failed or is not confirmed');
+    }
+
+    if (!receipt.to || receipt.to.toLowerCase() !== address.toLowerCase()) {
+      throw new Error('Payment was not sent to the HotColdGame contract');
+    }
+
+    if (receipt.from && receipt.from.toLowerCase() !== player.toLowerCase()) {
+      throw new Error('Payment sender does not match provided player');
+    }
+
+    const relevantLogs = receipt.logs.filter((log) => log.address.toLowerCase() === address.toLowerCase());
+
+    for (const log of relevantLogs) {
+      try {
+        const decoded = decodeEventLog({ abi: hotColdAbi, data: log.data, topics: log.topics });
+        if (decoded.eventName === 'GuessPaid') {
+          const { roundId, player: paidPlayer, amount, potAfter, guessCount } = decoded.args as {
+            roundId: bigint;
+            player: Address;
+            amount: bigint;
+            potAfter: bigint;
+            guessCount: bigint;
+          };
+
+          if (paidPlayer.toLowerCase() !== player.toLowerCase()) {
+            continue;
+          }
+
+          const onchain = await this.readRoundFromChain(roundId);
+          return {
+            roundId,
+            amount,
+            potAfter,
+            guessCount,
+            buyInWei: onchain.buyIn,
+          };
+        }
+      } catch (err) {
+        // Skip non-matching logs
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+    }
+
+    throw new Error('GuessPaid event not found for provided transaction');
   }
 
   public getPublicState() {

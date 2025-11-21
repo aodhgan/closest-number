@@ -14,6 +14,10 @@ export const NEAR_MATCH_THRESHOLD = parseInt(process.env.NEAR_MATCH_THRESHOLD ||
 export const PRICE_INCREASE_BPS = parseInt(process.env.PRICE_INCREASE_BPS || '1500', 10); // 15%
 export const MAX_PRICE_STEPS = parseInt(process.env.MAX_PRICE_STEPS || '6', 10);
 
+// Onchain integration
+export const HOT_COLD_CONTRACT_ADDRESS = (process.env.HOT_COLD_CONTRACT_ADDRESS as `0x${string}`) || null;
+export const CHAIN_ID = process.env.CHAIN_ID ? parseInt(process.env.CHAIN_ID, 10) : 84532;
+
 // Legacy exports retained for compatibility with unused modules
 export const RPC_URL = process.env.RPC_URL || null;
 export const ESCROW_CONTRACT_ADDRESS = (process.env.ESCROW_CONTRACT_ADDRESS as `0x${string}`) || null;

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Deployment script for HotColdGame contract
-# Usage: ./scripts/deploy.sh [--rpc-url RPC_URL] [--private-key PRIVATE_KEY] [--etherscan-api-key KEY] [--chain-id CHAIN_ID] [--verify] [--buy-in-wei AMOUNT]
+# Usage: ./scripts/deploy.sh [--rpc-url RPC_URL] [--private-key PRIVATE_KEY] [--tee-address ADDRESS] [--etherscan-api-key KEY] [--chain-id CHAIN_ID] [--verify] [--buy-in-wei AMOUNT]
 
 set -e
 
@@ -12,6 +12,7 @@ ETHERSCAN_API_KEY=""
 CHAIN_ID=""
 VERIFY=false
 INITIAL_BUY_IN=""
+TEE_ADDRESS=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -26,6 +27,10 @@ while [[ $# -gt 0 ]]; do
         --etherscan-api-key)
             ETHERSCAN_API_KEY="$2"
             VERIFY=true
+            shift 2
+            ;;
+        --tee-address)
+            TEE_ADDRESS="$2"
             shift 2
             ;;
         --chain-id)
@@ -66,6 +71,14 @@ if [ -z "$RPC_URL" ]; then
     RPC_URL="$RPC_URL_ENV"
 fi
 
+if [ -z "$TEE_ADDRESS" ]; then
+    if [ -z "$TEE_ADDRESS_ENV" ]; then
+        echo "Error: TEE address must be provided via --tee-address or TEE_ADDRESS environment variable"
+        exit 1
+    fi
+    TEE_ADDRESS="$TEE_ADDRESS_ENV"
+fi
+
 # Check for Etherscan API key from environment (if not provided via flag)
 # Foundry automatically uses ETHERSCAN_API_KEY environment variable when --verify is used
 if [ -z "$ETHERSCAN_API_KEY" ]; then
@@ -95,6 +108,9 @@ fi
 if [ -n "$INITIAL_BUY_IN" ]; then
     export INITIAL_BUY_IN_WEI="$INITIAL_BUY_IN"
 fi
+if [ -n "$TEE_ADDRESS" ]; then
+    export TEE_ADDRESS
+fi
 
 # Get the script directory and change to onchain directory
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -105,6 +121,7 @@ cd "$ONCHAIN_DIR"
 echo "Deploying HotColdGame contract..."
 echo "RPC URL: $RPC_URL"
 echo "Deployer address will be derived from private key"
+echo "TEE address: $TEE_ADDRESS"
 if [ "$VERIFY" = true ] && [ -n "$ETHERSCAN_API_KEY" ]; then
     echo "Verification: Enabled"
     if [ -n "$CHAIN_ID" ]; then

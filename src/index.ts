@@ -18,7 +18,7 @@ app.get('/', (_req, res) => {
     message: 'Hot-Cold enclave lottery API',
     endpoints: {
       state: 'GET /game',
-      guess: 'POST /game/guess { guess, player, stake }',
+      guess: 'POST /game/guess { guess, player, paymentTxHash }',
       reset: 'POST /game/reset',
     },
   });

@@ -35,9 +35,15 @@ export const RPC_URL = import.meta.env.VITE_RPC_URL || null;
  * Why: Privy needs to know which blockchain network to connect to.
  * Defaults to Base Sepolia testnet (84532) if not specified.
  */
-export const CHAIN_ID = import.meta.env.VITE_CHAIN_ID 
+export const CHAIN_ID = import.meta.env.VITE_CHAIN_ID
   ? parseInt(import.meta.env.VITE_CHAIN_ID)
   : 84532; // Base Sepolia testnet
+
+/**
+ * HotColdGame contract address
+ * Why: Needed to direct users to pay the buy-in with payForGuess before submitting a guess.
+ */
+export const HOT_COLD_GAME_ADDRESS = import.meta.env.VITE_HOT_COLD_GAME_ADDRESS || '';
 
 /**
  * Validate configuration on import
