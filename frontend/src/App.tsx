@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { PrivyProvider, usePrivy, useWallets } from '@privy-io/react-auth';
-import { Address, Hex, createWalletClient, custom, toHex } from 'viem';
+import { Address, Hex, createPublicClient, createWalletClient, custom, http } from 'viem';
 import { baseSepolia } from 'viem/chains';
 import './App.css';
 import {
@@ -11,6 +11,7 @@ import {
   PAYMENT_TOKEN_SYMBOL,
   PAYMENT_TOKEN_VERSION,
   PRIVY_APP_ID,
+  RPC_URL,
 } from './config/constants';
 import { ConnectionStatus } from './components/ConnectionStatus';
 import { fetchGameState, resetRound, submitGuess } from './services/api';
@@ -43,6 +44,16 @@ interface RoundState {
   winner?: Guess & { payoutWei: string };
   guesses: Guess[];
 }
+
+const permitAbi = [
+  {
+    type: 'function',
+    name: 'nonces',
+    stateMutability: 'view',
+    inputs: [{ name: 'owner', type: 'address' }],
+    outputs: [{ name: 'nonce', type: 'uint256' }],
+  },
+] as const;
 
 function splitSignature(signature: Hex): { v: number; r: Hex; s: Hex } {
   const raw = signature.slice(2);
@@ -78,9 +89,9 @@ function GameScreen() {
   async function buildAuthorization(): Promise<{
     roundId: string;
     payer: Address;
-    validAfter: string;
-    validBefore: string;
-    nonce: Hex;
+    value: string;
+    deadline: string;
+    nonce: string;
     v: number;
     r: Hex;
     s: Hex;
@@ -96,6 +107,9 @@ function GameScreen() {
     if (!wallet) {
       throw new Error('Connect a wallet with Privy to sign payments');
     }
+    if (!RPC_URL) {
+      throw new Error('RPC_URL must be configured to read permit nonces');
+    }
 
     const provider = await wallet.getEthereumProvider();
     const client = createWalletClient({
@@ -103,12 +117,16 @@ function GameScreen() {
       chain: baseSepolia,
       transport: custom(provider),
     });
+    const readClient = createPublicClient({ chain: baseSepolia, transport: http(RPC_URL) });
 
-    const nonceBytes = new Uint8Array(32);
-    crypto.getRandomValues(nonceBytes);
-    const nonce = toHex(nonceBytes);
-    const validAfter = Math.floor(Date.now() / 1000);
-    const validBefore = validAfter + 15 * 60; // 15 minutes
+    const nonce = (await readClient.readContract({
+      address: PAYMENT_TOKEN_ADDRESS as Address,
+      abi: permitAbi,
+      functionName: 'nonces',
+      args: [wallet.address as Address],
+    })) as bigint;
+
+    const deadline = BigInt(Math.floor(Date.now() / 1000) + 15 * 60); // 15 minutes
 
     const signature = await client.signTypedData({
       account: wallet.address as Address,
@@ -119,23 +137,21 @@ function GameScreen() {
         verifyingContract: PAYMENT_TOKEN_ADDRESS as Address,
       },
       types: {
-        TransferWithAuthorization: [
-          { name: 'from', type: 'address' },
-          { name: 'to', type: 'address' },
+        Permit: [
+          { name: 'owner', type: 'address' },
+          { name: 'spender', type: 'address' },
           { name: 'value', type: 'uint256' },
-          { name: 'validAfter', type: 'uint256' },
-          { name: 'validBefore', type: 'uint256' },
-          { name: 'nonce', type: 'bytes32' },
+          { name: 'nonce', type: 'uint256' },
+          { name: 'deadline', type: 'uint256' },
         ],
       },
-      primaryType: 'TransferWithAuthorization',
+      primaryType: 'Permit',
       message: {
-        from: wallet.address as Address,
-        to: HOT_COLD_GAME_ADDRESS as Address,
+        owner: wallet.address as Address,
+        spender: HOT_COLD_GAME_ADDRESS as Address,
         value: BigInt(round.buyInWei),
-        validAfter: BigInt(validAfter),
-        validBefore: BigInt(validBefore),
         nonce,
+        deadline,
       },
     });
 
@@ -144,9 +160,9 @@ function GameScreen() {
     return {
       roundId: round.roundId,
       payer: wallet.address as Address,
-      validAfter: validAfter.toString(),
-      validBefore: validBefore.toString(),
-      nonce,
+      value: round.buyInWei,
+      deadline: deadline.toString(),
+      nonce: nonce.toString(),
       v,
       r,
       s,
@@ -266,9 +282,9 @@ function GameScreen() {
         {!ready && <p className="muted">Waiting for Privy to initialize…</p>}
         {!authenticated && ready && <p className="muted">Login with Privy to attach your wallet to guesses.</p>}
         <p className="muted">
-          You will sign an ERC-3009 authorization to move {round?.buyInEth || '—'} {round?.paymentTokenSymbol || ''} to the
-          game contract {HOT_COLD_GAME_ADDRESS || ''}; the enclave backend pays gas, verifies on-chain success, then returns
-          your deterministic hint.
+          You will sign an ERC-2612 permit to move {round?.buyInEth || '—'} {round?.paymentTokenSymbol || ''} to the game
+          contract {HOT_COLD_GAME_ADDRESS || ''}; the enclave backend pays gas, verifies on-chain success, then returns your
+          deterministic hint.
         </p>
         <p className="muted">
           Payment token: {round?.paymentTokenSymbol || PAYMENT_TOKEN_SYMBOL} at {round?.paymentTokenAddress || PAYMENT_TOKEN_ADDRESS}

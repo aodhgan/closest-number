@@ -4,20 +4,9 @@ pragma solidity ^0.8.19;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 
-interface IERC3009 is IERC20 {
-    function transferWithAuthorization(
-        address from,
-        address to,
-        uint256 value,
-        uint256 validAfter,
-        uint256 validBefore,
-        bytes32 nonce,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external returns (bool);
-}
+interface IPermitERC20 is IERC20, IERC20Permit {}
 
 /// @title HotColdGame
 /// @notice Minimal on-chain vault for the hot–cold enclave game. Players prepay the current buy-in
@@ -56,8 +45,8 @@ contract HotColdGame is Ownable, ReentrancyGuard {
     uint256 public currentRoundId;
     mapping(uint256 => Round) public rounds;
 
-    /// @notice ERC20 token used for payments (must implement ERC3009 transferWithAuthorization)
-    IERC3009 public immutable paymentToken;
+    /// @notice ERC20 token used for payments (must implement ERC2612 permit)
+    IPermitERC20 public immutable paymentToken;
 
     /// @notice The only address allowed to update pricing and settle rounds.
     address public tee;
@@ -75,7 +64,7 @@ contract HotColdGame is Ownable, ReentrancyGuard {
         require(paymentTokenAddress != address(0), "Payment token required");
 
         tee = teeAddress;
-        paymentToken = IERC3009(paymentTokenAddress);
+        paymentToken = IPermitERC20(paymentTokenAddress);
 
         currentRoundId = 1;
         rounds[1] = Round({buyIn: initialBuyInWei, pot: 0, guesses: 0, winner: address(0), active: true});
@@ -84,23 +73,21 @@ contract HotColdGame is Ownable, ReentrancyGuard {
         emit TeeUpdated(address(0), teeAddress);
     }
 
-    /// @notice Pull a buy-in payment from the payer using ERC3009 authorization and credit the round pot.
+    /// @notice Pull a buy-in payment from the payer using an ERC2612 permit and credit the round pot.
     /// @dev This method pays gas on behalf of the user; the backend/TEE submits the transaction with the
-    /// signed authorization payload provided by the player.
+    /// signed permit payload provided by the player.
     /// @param roundId round identifier that must match the current active round
     /// @param payer address of the player who signed the authorization
-    /// @param validAfter timestamp after which the authorization is valid
-    /// @param validBefore timestamp before which the authorization expires
-    /// @param nonce unique authorization nonce to prevent replay
+    /// @param value amount approved in the permit signature (must equal the current buy-in)
+    /// @param deadline signature expiry timestamp
     /// @param v secp256k1 recovery id
     /// @param r secp256k1 signature r
     /// @param s secp256k1 signature s
     function payForGuess(
         uint256 roundId,
         address payer,
-        uint256 validAfter,
-        uint256 validBefore,
-        bytes32 nonce,
+        uint256 value,
+        uint256 deadline,
         uint8 v,
         bytes32 r,
         bytes32 s
@@ -110,19 +97,11 @@ contract HotColdGame is Ownable, ReentrancyGuard {
         Round storage round = rounds[roundId];
         require(round.active, "Round not active");
 
-        bool ok = paymentToken.transferWithAuthorization(
-            payer,
-            address(this),
-            round.buyIn,
-            validAfter,
-            validBefore,
-            nonce,
-            v,
-            r,
-            s
-        );
+        require(value == round.buyIn, "Permit value mismatch");
 
-        require(ok, "Authorization transfer failed");
+        paymentToken.permit(payer, address(this), value, deadline, v, r, s);
+
+        require(paymentToken.transferFrom(payer, address(this), round.buyIn), "Payment transfer failed");
 
         round.pot += round.buyIn;
         round.guesses += 1;

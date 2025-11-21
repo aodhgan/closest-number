@@ -59,9 +59,9 @@ interface GuessPayment {
 export interface AuthorizationPayload {
   roundId: string;
   payer: Address;
-  validAfter: string;
-  validBefore: string;
-  nonce: Hex;
+  value: string;
+  deadline: string;
+  nonce: string;
   v: number;
   r: Hex;
   s: Hex;
@@ -96,9 +96,8 @@ const hotColdAbi = [
     inputs: [
       { name: 'roundId', type: 'uint256' },
       { name: 'payer', type: 'address' },
-      { name: 'validAfter', type: 'uint256' },
-      { name: 'validBefore', type: 'uint256' },
-      { name: 'nonce', type: 'bytes32' },
+      { name: 'value', type: 'uint256' },
+      { name: 'deadline', type: 'uint256' },
       { name: 'v', type: 'uint8' },
       { name: 'r', type: 'bytes32' },
       { name: 's', type: 'bytes32' },
@@ -354,7 +353,7 @@ class GameService {
     }
 
     this.state.guesses.unshift(guessRecord);
-    const nonceKey = `${authorization.payer.toLowerCase()}:${authorization.nonce.toLowerCase()}`;
+    const nonceKey = `${authorization.payer.toLowerCase()}:${authorization.nonce}`;
     this.processedPayments.add(nonceKey);
 
     return { state: this.state, guess: guessRecord, payout };
@@ -385,11 +384,11 @@ class GameService {
     if (authorization.payer.toLowerCase() !== normalizedPlayer) {
       throw new Error('Authorization signer does not match player');
     }
-    if (!authorization.nonce || !authorization.validAfter || !authorization.validBefore) {
+    if (!authorization.nonce || !authorization.deadline || !authorization.value) {
       throw new Error('Authorization is missing required fields');
     }
 
-    const nonceKey = `${authorization.payer.toLowerCase()}:${authorization.nonce.toLowerCase()}`;
+    const nonceKey = `${authorization.payer.toLowerCase()}:${authorization.nonce}`;
     if (this.processedPayments.has(nonceKey)) {
       throw new Error('Authorization already used for a guess');
     }
@@ -398,20 +397,12 @@ class GameService {
     const currentRoundId = (await client.readContract({ address, abi: hotColdAbi, functionName: 'currentRoundId' })) as bigint;
     const roundId = authorization.roundId ? BigInt(authorization.roundId) : currentRoundId;
 
+    const permitValue = BigInt(authorization.value);
     const txHash = await wallet.writeContract({
       address,
       abi: hotColdAbi,
       functionName: 'payForGuess',
-      args: [
-        roundId,
-        authorization.payer,
-        BigInt(authorization.validAfter),
-        BigInt(authorization.validBefore),
-        authorization.nonce,
-        authorization.v,
-        authorization.r,
-        authorization.s,
-      ],
+      args: [roundId, authorization.payer, permitValue, BigInt(authorization.deadline), authorization.v, authorization.r, authorization.s],
     });
 
     const receipt = await client.waitForTransactionReceipt({ hash: txHash });

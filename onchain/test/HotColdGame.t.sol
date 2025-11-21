@@ -2,68 +2,29 @@
 pragma solidity ^0.8.19;
 
 import {Test} from "forge-std/Test.sol";
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20} from "solady/src/tokens/ERC20.sol";
 import {HotColdGame} from "../src/HotColdGame.sol";
 
-contract MockERC3009 is ERC20, EIP712 {
-    using ECDSA for bytes32;
+contract MockPermitToken is ERC20 {
+    string internal _name = "MockPermit";
+    string internal _symbol = "MCK";
 
-    bytes32 public constant TRANSFER_WITH_AUTHORIZATION_TYPEHASH = keccak256(
-        "TransferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)"
-    );
+    function name() public view override returns (string memory) {
+        return _name;
+    }
 
-    mapping(address => mapping(bytes32 => bool)) public authorizationState;
-
-    constructor() ERC20("Mock3009", "MCK") EIP712("Mock3009", "1") {}
+    function symbol() public view override returns (string memory) {
+        return _symbol;
+    }
 
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
-    }
-
-    function authorizationDigest(
-        address from,
-        address to,
-        uint256 value,
-        uint256 validAfter,
-        uint256 validBefore,
-        bytes32 nonce
-    ) public view returns (bytes32) {
-        bytes32 structHash = keccak256(
-            abi.encode(TRANSFER_WITH_AUTHORIZATION_TYPEHASH, from, to, value, validAfter, validBefore, nonce)
-        );
-        return _hashTypedDataV4(structHash);
-    }
-
-    function transferWithAuthorization(
-        address from,
-        address to,
-        uint256 value,
-        uint256 validAfter,
-        uint256 validBefore,
-        bytes32 nonce,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external returns (bool) {
-        require(block.timestamp > validAfter, "Authorization not yet valid");
-        require(block.timestamp < validBefore, "Authorization expired");
-        require(!authorizationState[from][nonce], "Authorization already used");
-
-        bytes32 digest = authorizationDigest(from, to, value, validAfter, validBefore, nonce);
-        address signer = ECDSA.recover(digest, v, r, s);
-        require(signer == from, "Invalid signature");
-
-        authorizationState[from][nonce] = true;
-        _transfer(from, to, value);
-        return true;
     }
 }
 
 contract HotColdGameTest is Test {
     HotColdGame public game;
-    MockERC3009 public token;
+    MockPermitToken public token;
 
     uint256 public ownerKey = 0xAAA1;
     uint256 public teeKey = 0xAAA2;
@@ -88,7 +49,7 @@ contract HotColdGameTest is Test {
     event WinnerPaid(uint256 indexed roundId, address indexed winner, uint256 payout);
 
     function setUp() public {
-        token = new MockERC3009();
+        token = new MockPermitToken();
         game = new HotColdGame(1 ether, tee, address(token));
 
         token.mint(player1, 10 ether);
@@ -113,12 +74,12 @@ contract HotColdGameTest is Test {
     }
 
     function testPayForGuessAccumulatesPot() public {
-        bytes32 nonce = keccak256("guess1");
-        (uint8 v, bytes32 r, bytes32 s) = signAuth(player1Key, player1, address(game), 1 ether, nonce);
+        uint256 deadline = block.timestamp + 1 days;
+        (uint8 v, bytes32 r, bytes32 s) = signPermit(player1Key, player1, address(game), 1 ether, deadline);
 
         vm.expectEmit(true, true, false, true);
         emit GuessPaid(1, player1, 1 ether, 1 ether, 1);
-        game.payForGuess(1, player1, block.timestamp, block.timestamp + 1 days, nonce, v, r, s);
+        game.payForGuess(1, player1, 1 ether, deadline, v, r, s);
 
         (, uint256 pot, uint256 guesses,,) = game.rounds(1);
         assertEq(pot, 1 ether);
@@ -130,11 +91,11 @@ contract HotColdGameTest is Test {
         vm.prank(tee);
         game.closeActiveRound();
 
-        bytes32 nonce = keccak256("guess2");
-        (uint8 v, bytes32 r, bytes32 s) = signAuth(player1Key, player1, address(game), 1 ether, nonce);
+        uint256 deadline = block.timestamp + 1 days;
+        (uint8 v, bytes32 r, bytes32 s) = signPermit(player1Key, player1, address(game), 1 ether, deadline);
 
         vm.expectRevert(bytes("Round not active"));
-        game.payForGuess(1, player1, block.timestamp, block.timestamp + 1 days, nonce, v, r, s);
+        game.payForGuess(1, player1, 1 ether, deadline, v, r, s);
     }
 
     function testUpdateBuyInOnlyTee() public {
@@ -166,14 +127,13 @@ contract HotColdGameTest is Test {
     }
 
     function testSettleWinnerPaysOutPot() public {
-        bytes32 nonce1 = keccak256("p1");
-        bytes32 nonce2 = keccak256("p2");
+        uint256 deadline = block.timestamp + 1 days;
 
-        (uint8 v1, bytes32 r1, bytes32 s1) = signAuth(player1Key, player1, address(game), 1 ether, nonce1);
-        (uint8 v2, bytes32 r2, bytes32 s2) = signAuth(player2Key, player2, address(game), 1 ether, nonce2);
+        (uint8 v1, bytes32 r1, bytes32 s1) = signPermit(player1Key, player1, address(game), 1 ether, deadline);
+        (uint8 v2, bytes32 r2, bytes32 s2) = signPermit(player2Key, player2, address(game), 1 ether, deadline);
 
-        game.payForGuess(1, player1, block.timestamp, block.timestamp + 1 days, nonce1, v1, r1, s1);
-        game.payForGuess(1, player2, block.timestamp, block.timestamp + 1 days, nonce2, v2, r2, s2);
+        game.payForGuess(1, player1, 1 ether, deadline, v1, r1, s1);
+        game.payForGuess(1, player2, 1 ether, deadline, v2, r2, s2);
 
         uint256 balanceBefore = token.balanceOf(winner);
 
@@ -196,18 +156,17 @@ contract HotColdGameTest is Test {
     }
 
     function testCannotPayAfterSettlement() public {
-        bytes32 nonce1 = keccak256("p1");
-        (uint8 v1, bytes32 r1, bytes32 s1) = signAuth(player1Key, player1, address(game), 1 ether, nonce1);
-        game.payForGuess(1, player1, block.timestamp, block.timestamp + 1 days, nonce1, v1, r1, s1);
+        uint256 deadline = block.timestamp + 1 days;
+        (uint8 v1, bytes32 r1, bytes32 s1) = signPermit(player1Key, player1, address(game), 1 ether, deadline);
+        game.payForGuess(1, player1, 1 ether, deadline, v1, r1, s1);
 
         vm.prank(tee);
         game.settleWinner(payable(winner));
 
-        bytes32 nonce2 = keccak256("p2");
-        (uint8 v2, bytes32 r2, bytes32 s2) = signAuth(player1Key, player1, address(game), 1 ether, nonce2);
+        (uint8 v2, bytes32 r2, bytes32 s2) = signPermit(player1Key, player1, address(game), 1 ether, deadline);
 
         vm.expectRevert(bytes("Round not active"));
-        game.payForGuess(1, player1, block.timestamp, block.timestamp + 1 days, nonce2, v2, r2, s2);
+        game.payForGuess(1, player1, 1 ether, deadline, v2, r2, s2);
     }
 
     function testStartNextRoundRequiresInactive() public {
@@ -235,9 +194,9 @@ contract HotColdGameTest is Test {
     }
 
     function testWithdrawIdleTracksPot() public {
-        bytes32 nonce = keccak256("idle");
-        (uint8 v, bytes32 r, bytes32 s) = signAuth(player1Key, player1, address(game), 1 ether, nonce);
-        game.payForGuess(1, player1, block.timestamp, block.timestamp + 1 days, nonce, v, r, s);
+        uint256 deadline = block.timestamp + 1 days;
+        (uint8 v, bytes32 r, bytes32 s) = signPermit(player1Key, player1, address(game), 1 ether, deadline);
+        game.payForGuess(1, player1, 1 ether, deadline, v, r, s);
 
         vm.prank(tee);
         game.closeActiveRound();
@@ -255,14 +214,14 @@ contract HotColdGameTest is Test {
         assertEq(token.balanceOf(owner), ownerBalanceBefore + 1 ether);
     }
 
-    function signAuth(
+    function signPermit(
         uint256 signerKey,
-        address from,
-        address to,
+        address owner,
+        address spender,
         uint256 value,
-        bytes32 nonce
+        uint256 deadline
     ) internal view returns (uint8 v, bytes32 r, bytes32 s) {
-        bytes32 digest = token.authorizationDigest(from, to, value, block.timestamp, block.timestamp + 1 days, nonce);
+        bytes32 digest = token.permitDigest(owner, spender, value, token.nonces(owner), deadline);
         return vm.sign(signerKey, digest);
     }
 }
