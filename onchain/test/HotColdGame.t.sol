@@ -2,7 +2,7 @@
 pragma solidity ^0.8.19;
 
 import {Test} from "forge-std/Test.sol";
-import {ERC20} from "solady/src/tokens/ERC20.sol";
+import {ERC20} from "../lib/solady/src/tokens/ERC20.sol";
 import {HotColdGame} from "../src/HotColdGame.sol";
 
 contract MockPermitToken is ERC20 {
@@ -56,7 +56,7 @@ contract HotColdGameTest is Test {
         token.mint(player2, 10 ether);
         token.mint(address(game), 0); // satisfy lint
 
-        vm.prank(tee);
+        
         game.transferOwnership(owner);
     }
 

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 
@@ -12,7 +12,7 @@ interface IPermitERC20 is IERC20, IERC20Permit {}
 /// @notice Minimal on-chain vault for the hot–cold enclave game. Players prepay the current buy-in
 /// before submitting their off-chain guess, while the coordinator (TEE or owner) can adjust pricing
 /// and settle the winning payout.
-contract HotColdGame is Ownable, ReentrancyGuard {
+contract HotColdGame is Ownable, ReentrancyGuardTransient {
     /// @dev Emitted when a new round is initialized.
     event RoundStarted(uint256 indexed roundId, uint256 buyIn);
 
@@ -58,7 +58,7 @@ contract HotColdGame is Ownable, ReentrancyGuard {
 
     /// @param initialBuyInWei starting buy-in for the first round
     /// @param teeAddress trusted enclave/TEE controller
-    constructor(uint256 initialBuyInWei, address teeAddress, address paymentTokenAddress) {
+    constructor(uint256 initialBuyInWei, address teeAddress, address paymentTokenAddress) Ownable(msg.sender){
         require(initialBuyInWei > 0, "Buy-in must be > 0");
         require(teeAddress != address(0), "TEE address required");
         require(paymentTokenAddress != address(0), "Payment token required");
