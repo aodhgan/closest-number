@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Deployment script for Escrow contract
-# Usage: ./scripts/deploy.sh [--rpc-url RPC_URL] [--private-key PRIVATE_KEY] [--etherscan-api-key KEY] [--chain-id CHAIN_ID] [--verify]
+# Deployment script for HotColdGame contract
+# Usage: ./scripts/deploy.sh [--rpc-url RPC_URL] [--private-key PRIVATE_KEY] [--etherscan-api-key KEY] [--chain-id CHAIN_ID] [--verify] [--buy-in-wei AMOUNT]
 
 set -e
 
@@ -11,6 +11,7 @@ PRIVATE_KEY=""
 ETHERSCAN_API_KEY=""
 CHAIN_ID=""
 VERIFY=false
+INITIAL_BUY_IN=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -35,9 +36,13 @@ while [[ $# -gt 0 ]]; do
             VERIFY=true
             shift
             ;;
+        --buy-in-wei)
+            INITIAL_BUY_IN="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--rpc-url RPC_URL] [--private-key PRIVATE_KEY] [--etherscan-api-key KEY] [--chain-id CHAIN_ID] [--verify]"
+            echo "Usage: $0 [--rpc-url RPC_URL] [--private-key PRIVATE_KEY] [--etherscan-api-key KEY] [--chain-id CHAIN_ID] [--verify] [--buy-in-wei AMOUNT]"
             exit 1
             ;;
     esac
@@ -87,6 +92,9 @@ export RPC_URL
 if [ -n "$ETHERSCAN_API_KEY" ]; then
     export ETHERSCAN_API_KEY
 fi
+if [ -n "$INITIAL_BUY_IN" ]; then
+    export INITIAL_BUY_IN_WEI="$INITIAL_BUY_IN"
+fi
 
 # Get the script directory and change to onchain directory
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -94,7 +102,7 @@ ONCHAIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ONCHAIN_DIR"
 
 # Run the deployment script
-echo "Deploying Escrow contract..."
+echo "Deploying HotColdGame contract..."
 echo "RPC URL: $RPC_URL"
 echo "Deployer address will be derived from private key"
 if [ "$VERIFY" = true ] && [ -n "$ETHERSCAN_API_KEY" ]; then
@@ -106,7 +114,7 @@ fi
 echo ""
 
 # Build forge command
-FORGE_CMD="forge script script/DeployEscrow.s.sol:DeployEscrow \
+FORGE_CMD="forge script script/DeployHotColdGame.s.sol:DeployHotColdGame \
     --rpc-url \"$RPC_URL\" \
     --private-key \"$PRIVATE_KEY\" \
     --broadcast"
