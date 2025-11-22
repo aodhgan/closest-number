@@ -1,16 +1,15 @@
 # compute-escrow-privy
 
-A complete escrow system with a Trusted Execution Environment (TEE) backend and React frontend. This project enables secure escrow balance management with Privy wallet authentication.
+A TEE-backed hot–cold guessing game with a React frontend and Privy wallet authentication. Users prepay guesses on-chain, receive deterministic hints from the enclave, and the first exact match claims the pooled pot.
 
 ## Prerequisites
 
 Before starting development, you need to:
 
-1. **Deploy the Escrow Contract** (Required First Step)
+1. **Deploy the HotColdGame Contract** (Required First Step)
    - See [`onchain/README.md`](./onchain/README.md) for complete deployment instructions
    - The contract must be deployed before the TEE server can function
    - You'll need the contract address for the TEE server configuration
-   - After deployment, you'll also need to set the TEE's public address as the settler
 
 2. **Set up Privy Account**
    - Create an account at [Privy Dashboard](https://dashboard.privy.io)
@@ -26,11 +25,11 @@ Before starting development, you need to:
 
 #### Quick Start (Run Both Backend & Frontend)
 
-**Important**: Deploy the Escrow contract first! See [`onchain/README.md`](./onchain/README.md) for deployment instructions.
+**Important**: Deploy the HotColdGame contract first! See [`onchain/README.md`](./onchain/README.md) for deployment instructions.
 
 ```bash
-# 1. Deploy Escrow contract (see onchain/README.md)
-#    You'll need the contract address and TEE public address for the next steps
+# 1. Deploy HotColdGame contract (see onchain/README.md)
+#    You'll need the contract address for the next steps
 
 # 2. Install dependencies for both backend and frontend
 npm install
@@ -41,7 +40,7 @@ cp .env.example .env          # Backend config
 cp frontend/.env.local.example frontend/.env.local  # Frontend config
 
 # 4. Edit .env and frontend/.env.local with your configuration:
-#    - ESCROW_CONTRACT_ADDRESS (from step 1)
+#    - GAME_CONTRACT_ADDRESS (from step 1)
 #    - PRIVY_APP_ID and PRIVY_APP_SECRET
 #    - RPC_URL
 #    - MNEMONIC (for TEE)
@@ -55,10 +54,10 @@ This will start:
 - **Backend**: TEE server on `http://localhost:8000`
 - **Frontend**: Vite dev server on `http://localhost:3000`
 
-**Note**: After deploying the Escrow contract, remember to:
-1. Get the TEE's public address from `http://localhost:8000/settler` (once backend is running)
-2. Update the settler on the contract using the script in `onchain/scripts/update-settler.sh`
-3. Verify the contract address is configured: `http://localhost:8000/escrowAddress`
+**Note**: After deploying the HotColdGame contract, remember to:
+1. Point the backend to the deployed address (`GAME_CONTRACT_ADDRESS`)
+2. Use `onchain/scripts/update-buyin.sh` if you need to raise the buy-in mid-round
+3. Verify the contract address is configured: `http://localhost:8000/gameAddress`
 
 #### Individual Services
 
