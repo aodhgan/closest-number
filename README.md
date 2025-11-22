@@ -210,3 +210,10 @@ tls /path/to/cert.pem /path/to/key.pem
 ## Documentation
 
 [EigenX CLI Documentation](https://github.com/Layr-Labs/eigenx-cli/blob/main/README.md)
+
+
+- to do:
+- no hardcoding addresses
+- set up logic to use TEE pk when available (detect not sim mode)
+- have contract commit to sealed target hash
+- advance game round only when last round is finished
