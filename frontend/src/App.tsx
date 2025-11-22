@@ -223,15 +223,15 @@ function GameScreen() {
         </div>
         <div className="round-meta">
           <div>
-            <span className="label">Round</span>
+            <span className="label">Round: </span>
             <strong>{round?.roundId.slice(0, 8) || '—'}</strong>
           </div>
           <div>
-            <span className="label">Digits</span>
+            <span className="label">Digits: </span>
             <strong>{round?.digits ?? '—'}</strong>
           </div>
           <div>
-            <span className="label">Metric</span>
+            <span className="label">Metric: </span>
             <strong>{round?.distanceMetric ?? '—'}</strong>
           </div>
         </div>

@@ -15,9 +15,9 @@ export const PRICE_INCREASE_BPS = parseInt(process.env.PRICE_INCREASE_BPS || '15
 export const MAX_PRICE_STEPS = parseInt(process.env.MAX_PRICE_STEPS || '6', 10);
 
 // Onchain integration
-export const HOT_COLD_CONTRACT_ADDRESS = (process.env.HOT_COLD_CONTRACT_ADDRESS as `0x${string}`) || null;
-export const CHAIN_ID = process.env.CHAIN_ID ? parseInt(process.env.CHAIN_ID, 10) : 84532;
-export const PAYMENT_TOKEN_ADDRESS = (process.env.PAYMENT_TOKEN_ADDRESS as `0x${string}`) || null;
+export const HOT_COLD_CONTRACT_ADDRESS = "0xa8f82aC3C52D959D20a9722d7CAe913d46f69a7A"
+export const CHAIN_ID = 84532;
+export const PAYMENT_TOKEN_ADDRESS = "0xE71aC8e30C5f7671eb96Fa089aC0B8b926798Dd1";
 export const PAYMENT_TOKEN_NAME = process.env.PAYMENT_TOKEN_NAME || 'MockPermit';
 export const PAYMENT_TOKEN_SYMBOL = process.env.PAYMENT_TOKEN_SYMBOL || 'MCK';
 export const PAYMENT_TOKEN_VERSION = process.env.PAYMENT_TOKEN_VERSION || '1';
