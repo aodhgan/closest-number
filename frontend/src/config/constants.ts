@@ -28,7 +28,7 @@ export const PRIVY_APP_ID = import.meta.env.VITE_PRIVY_APP_ID || '';
  * 
  * Required: Yes - must be set in .env.local file
  */
-export const RPC_URL = import.meta.env.VITE_RPC_URL || null;
+export const RPC_URL = "https://sepolia.base.org"
 
 /**
  * Chain ID (optional, defaults to Base Sepolia)
@@ -43,9 +43,9 @@ export const CHAIN_ID = import.meta.env.VITE_CHAIN_ID
  * HotColdGame contract address
  * Why: Needed to direct users to pay the buy-in with payForGuess before submitting a guess.
  */
-export const HOT_COLD_GAME_ADDRESS = import.meta.env.VITE_HOT_COLD_GAME_ADDRESS || '';
+export const HOT_COLD_GAME_ADDRESS = "0xa8f82aC3C52D959D20a9722d7CAe913d46f69a7A" || '';
 
-export const PAYMENT_TOKEN_ADDRESS = import.meta.env.VITE_PAYMENT_TOKEN_ADDRESS || '';
+export const PAYMENT_TOKEN_ADDRESS = "0xE71aC8e30C5f7671eb96Fa089aC0B8b926798Dd1" || '';
 export const PAYMENT_TOKEN_NAME = import.meta.env.VITE_PAYMENT_TOKEN_NAME || 'MockPermit';
 export const PAYMENT_TOKEN_SYMBOL = import.meta.env.VITE_PAYMENT_TOKEN_SYMBOL || 'MCK';
 export const PAYMENT_TOKEN_VERSION = import.meta.env.VITE_PAYMENT_TOKEN_VERSION || '1';
