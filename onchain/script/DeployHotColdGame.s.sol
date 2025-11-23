@@ -7,15 +7,13 @@ import {HotColdGame} from "../src/HotColdGame.sol";
 contract DeployHotColdGame is Script {
     function run() external returns (HotColdGame game) {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        uint256 initialBuyIn = vm.envOr("INITIAL_BUY_IN_WEI", uint256(0.01 ether));
         address teeAddress = vm.envAddress("TEE_ADDRESS");
         address paymentToken = vm.envAddress("PAYMENT_TOKEN_ADDRESS");
-        require(initialBuyIn > 0, "Initial buy-in must be > 0");
         require(teeAddress != address(0), "TEE_ADDRESS required");
         require(paymentToken != address(0), "PAYMENT_TOKEN_ADDRESS required");
 
         vm.startBroadcast(deployerPrivateKey);
-        game = new HotColdGame(initialBuyIn, teeAddress, paymentToken);
+        game = new HotColdGame(teeAddress, paymentToken);
         vm.stopBroadcast();
 
         console.log("HotColdGame deployed at:", address(game));
@@ -23,6 +21,5 @@ contract DeployHotColdGame is Script {
         console.log("Owner:", game.owner());
         console.log("TEE:", game.tee());
         console.log("Round:", game.currentRoundId());
-        console.log("Buy-in:", game.rounds(game.currentRoundId()).buyIn);
     }
 }

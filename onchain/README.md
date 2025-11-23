@@ -15,9 +15,9 @@ The contract is intentionally narrow: all game logic and hinting lives in the TE
 
 ### Constructor
 ```solidity
-constructor(uint256 initialBuyInWei, address teeAddress)
+constructor(address teeAddress, address paymentTokenAddress)
 ```
-Creates round 1 as active with the specified buy-in and sets the trusted enclave/TEE signer that controls pricing and settlement.
+Configures the trusted enclave/TEE signer that controls pricing and settlement and pins the ERC20 payment token used for the game. Rounds are started explicitly via `startNextRound`.
 
 ### payForGuess
 ```solidity
@@ -41,9 +41,18 @@ Pays the entire active pot to the winner, marks the round inactive, and records 
 
 ### startNextRound
 ```solidity
-function startNextRound(uint256 buyInWei) external onlyTee returns (uint256)
+function startNextRound(uint256 buyInWei, bytes32 targetCommitment) external onlyTee returns (uint256)
 ```
-Starts a new round after the prior one is inactive.
+Starts a new round after the prior one is inactive and anchors the enclave-provided commitment hash for the target.
+
+### settleAndStartNextRound
+```solidity
+function settleAndStartNextRound(address payable winner, uint256 buyInWei, bytes32 targetCommitment)
+    external
+    onlyTee
+    returns (uint256)
+```
+Closes the active round by paying the winner and immediately opens the next round with a fresh commitment.
 
 ### closeActiveRound
 ```solidity
@@ -77,12 +86,14 @@ From `onchain/`:
   --rpc-url <RPC_URL> \
   --private-key <PRIVATE_KEY> \
   --tee-address <TEE_ADDRESS> \
-  --buy-in-wei <INITIAL_BUY_IN> \
+  --payment-token-address <PAYMENT_TOKEN_ADDRESS> \
   --etherscan-api-key <API_KEY> \  # optional for verification
   --verify                         # optional
 ```
 
-You can also supply `PRIVATE_KEY`, `RPC_URL`, `INITIAL_BUY_IN_WEI`, and `ETHERSCAN_API_KEY` as environment variables.
+You can also supply `PRIVATE_KEY`, `RPC_URL`, `TEE_ADDRESS`, `PAYMENT_TOKEN_ADDRESS`, and `ETHERSCAN_API_KEY` as environment variables.
+
+After deployment, the TEE must call `startNextRound` (or `settleAndStartNextRound`) to open the first round with its commitment.
 
 ### Adjusting buy-in
 Use the helper script to bump the active buy-in:
@@ -101,7 +112,7 @@ forge script script/UpdateBuyIn.s.sol:UpdateBuyIn --rpc-url <RPC_URL> --private-
 ```
 
 ## Events
-- `RoundStarted(uint256 roundId, uint256 buyIn)`
+- `RoundStarted(uint256 roundId, uint256 buyIn, bytes32 targetCommitment)`
 - `BuyInUpdated(uint256 roundId, uint256 newBuyIn)`
 - `GuessPaid(uint256 roundId, address player, uint256 amount, uint256 potAfter, uint256 guessCount)`
 - `WinnerPaid(uint256 roundId, address winner, uint256 payout)`

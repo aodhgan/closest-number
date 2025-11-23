@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Deployment script for HotColdGame contract
-# Usage: ./scripts/deploy.sh [--rpc-url RPC_URL] [--private-key PRIVATE_KEY] [--tee-address ADDRESS] [--etherscan-api-key KEY] [--chain-id CHAIN_ID] [--verify] [--buy-in-wei AMOUNT]
+# Usage: ./scripts/deploy.sh [--rpc-url RPC_URL] [--private-key PRIVATE_KEY] [--tee-address ADDRESS] [--etherscan-api-key KEY] [--chain-id CHAIN_ID] [--verify]
 
 set -e
 
@@ -11,7 +11,6 @@ PRIVATE_KEY=""
 ETHERSCAN_API_KEY=""
 CHAIN_ID=""
 VERIFY=false
-INITIAL_BUY_IN=""
 TEE_ADDRESS=""
 PAYMENT_TOKEN_ADDRESS=""
 
@@ -46,13 +45,9 @@ while [[ $# -gt 0 ]]; do
             VERIFY=true
             shift
             ;;
-        --buy-in-wei)
-            INITIAL_BUY_IN="$2"
-            shift 2
-            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--rpc-url RPC_URL] [--private-key PRIVATE_KEY] [--etherscan-api-key KEY] [--chain-id CHAIN_ID] [--verify] [--buy-in-wei AMOUNT] [--payment-token-address ADDRESS]"
+            echo "Usage: $0 [--rpc-url RPC_URL] [--private-key PRIVATE_KEY] [--etherscan-api-key KEY] [--chain-id CHAIN_ID] [--verify] [--payment-token-address ADDRESS]"
             exit 1
             ;;
     esac
@@ -117,9 +112,6 @@ export PRIVATE_KEY
 export RPC_URL
 if [ -n "$ETHERSCAN_API_KEY" ]; then
     export ETHERSCAN_API_KEY
-fi
-if [ -n "$INITIAL_BUY_IN" ]; then
-    export INITIAL_BUY_IN_WEI="$INITIAL_BUY_IN"
 fi
 if [ -n "$TEE_ADDRESS" ]; then
     export TEE_ADDRESS
