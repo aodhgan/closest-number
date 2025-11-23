@@ -25,5 +25,4 @@ export const TEE_PRIVATE_KEY = process.env.TEE_PRIVATE_KEY || null;
 
 // Legacy exports retained for compatibility with unused modules
 export const RPC_URL = process.env.RPC_URL || null;
-export const ESCROW_CONTRACT_ADDRESS = (process.env.ESCROW_CONTRACT_ADDRESS as `0x${string}`) || null;
 export const MNEMONIC = process.env.MNEMONIC || null;
