@@ -256,8 +256,9 @@ class GameService {
     const target = randomDigits(digits);
     const roundId = overrides.roundId ?? crypto.randomUUID();
     const buyInWei = overrides.buyInWei ?? parseWei(BASE_BUY_IN_WEI);
-    const sealedHash = sealTarget(roundId, overrides.targetSecret ?? target);
-    const targetDigest = overrides.targetDigest ?? sealedHash;
+    const targetSecret = overrides.targetSecret ?? target;
+    const targetDigest = overrides.targetDigest ?? sealTarget(roundId, targetSecret);
+    const sealedHash = overrides.sealedHash ?? targetDigest;
     const startedAt = overrides.startedAt ?? new Date().toISOString();
     const commitment = overrides.targetCommitment ?? this.buildCommitment(roundId, targetDigest, startedAt);
 
@@ -265,7 +266,7 @@ class GameService {
       roundId,
       digits,
       sealedHash,
-      targetSecret: overrides.targetSecret ?? target,
+      targetSecret,
       buyInWei,
       potWei: overrides.potWei ?? BigInt(0),
       guesses: overrides.guesses ?? [],
@@ -384,14 +385,22 @@ class GameService {
         return;
       }
 
+      const targetCommitment = this.createCommitmentFromOnchain(chainRoundId, onchainRound.targetCommitment, now);
+      const restoredSecret = this.state?.targetSecret;
+      const roundId = chainRoundId.toString();
+      const matchingSecret = restoredSecret && sealTarget(roundId, restoredSecret) === targetCommitment.digest ? restoredSecret : undefined;
+
       this.state = this.createRound({
-        roundId: chainRoundId.toString(),
+        roundId,
         buyInWei: onchainRound.buyIn,
         potWei: onchainRound.pot,
         guesses: [],
         priceSteps: 0,
         startedAt: now,
-        targetCommitment: this.createCommitmentFromOnchain(chainRoundId, onchainRound.targetCommitment, now),
+        targetDigest: targetCommitment.digest,
+        sealedHash: targetCommitment.digest,
+        targetSecret: matchingSecret,
+        targetCommitment,
       });
       await this.commitTargetDigest(this.state);
       this.processedPayments.clear();
@@ -543,15 +552,24 @@ class GameService {
 
   private async resetRoundForChain(roundId: bigint) {
     const onchain = await this.readRoundFromChain(roundId);
+    const startedAt = new Date().toISOString();
+    const targetCommitment = this.createCommitmentFromOnchain(roundId, onchain.targetCommitment, startedAt);
+    const restoredSecret = this.state?.targetSecret;
+    const roundIdStr = roundId.toString();
+    const matchingSecret = restoredSecret && sealTarget(roundIdStr, restoredSecret) === targetCommitment.digest ? restoredSecret : undefined;
+
     this.state = this.createRound({
-      roundId: roundId.toString(),
+      roundId: roundIdStr,
       buyInWei: onchain.buyIn,
       potWei: onchain.pot,
       guesses: [],
       priceSteps: 0,
-      startedAt: new Date().toISOString(),
+      startedAt,
       winner: undefined,
-      targetCommitment: this.createCommitmentFromOnchain(roundId, onchain.targetCommitment, new Date().toISOString()),
+      targetDigest: targetCommitment.digest,
+      sealedHash: targetCommitment.digest,
+      targetSecret: matchingSecret,
+      targetCommitment,
     });
     void this.commitTargetDigest(this.state);
     this.processedPayments.clear();
