@@ -116,6 +116,34 @@ const hotColdAbi = [
   },
   {
     type: 'function',
+    name: 'settleWinner',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'winner', type: 'address' }],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'settleAndStartNextRound',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'winner', type: 'address' },
+      { name: 'buyInWei', type: 'uint256' },
+      { name: 'targetCommitment', type: 'bytes32' },
+    ],
+    outputs: [{ name: 'newRoundId', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'startNextRound',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'buyInWei', type: 'uint256' },
+      { name: 'targetCommitment', type: 'bytes32' },
+    ],
+    outputs: [{ name: 'newRoundId', type: 'uint256' }],
+  },
+  {
+    type: 'function',
     name: 'currentRoundId',
     stateMutability: 'view',
     inputs: [],
@@ -204,6 +232,14 @@ function formatEth(amountWei: bigint): string {
   return negative ? `-${value}` : value;
 }
 
+function digestToBytes32(digest: string): Hex {
+  const normalized = digest.startsWith('0x') ? digest.slice(2) : digest;
+  if (!/^[0-9a-fA-F]{64}$/.test(normalized)) {
+    throw new Error('Target commitment digest must be a 32-byte hex string');
+  }
+  return `0x${normalized}` as Hex;
+}
+
 class GameService {
   private state: GameRoundState;
 
@@ -212,7 +248,7 @@ class GameService {
   constructor() {
     this.state = this.createRound();
     void this.commitTargetDigest(this.state);
-    void this.trySyncFromChain();
+    void this.ensureRoundIsReady();
   }
 
   private createRound(overrides: Partial<GameRoundState> = {}): GameRoundState {
@@ -250,6 +286,10 @@ class GameService {
       message: `HotCold target commitment for round ${roundId}: ${digest}`,
       committedAt: startedAt,
     };
+  }
+
+  private getCommitmentDigest(round: GameRoundState): string {
+    return round.targetCommitment?.digest ?? round.targetDigest;
   }
 
   private ensureOnchainClient(): {
@@ -322,23 +362,95 @@ class GameService {
     return { buyIn, pot, guesses, winner, active, targetCommitment };
   }
 
-  private async trySyncFromChain() {
+  private async ensureRoundIsReady() {
     try {
       const { client, address } = this.ensureOnchainClient();
-      const chainRoundId = await client.readContract({ address, abi: hotColdAbi, functionName: 'currentRoundId' });
-      const onchainRound = await this.readRoundFromChain(chainRoundId as bigint);
+      const chainRoundId = (await client.readContract({ address, abi: hotColdAbi, functionName: 'currentRoundId' })) as bigint;
+      const now = new Date().toISOString();
+
+      if (chainRoundId === 0n) {
+        const nextState = this.createRound({ roundId: '1', startedAt: now });
+        await this.commitTargetDigest(nextState);
+        await this.startRoundOnChain(address, nextState);
+        return;
+      }
+
+      const onchainRound = await this.readRoundFromChain(chainRoundId);
+      if (!onchainRound.active) {
+        const nextRoundId = chainRoundId + 1n;
+        const nextState = this.createRound({ roundId: nextRoundId.toString(), startedAt: now });
+        await this.commitTargetDigest(nextState);
+        await this.startRoundOnChain(address, nextState);
+        return;
+      }
+
       this.state = this.createRound({
-        roundId: (chainRoundId as bigint).toString(),
+        roundId: chainRoundId.toString(),
         buyInWei: onchainRound.buyIn,
         potWei: onchainRound.pot,
         guesses: [],
+        priceSteps: 0,
+        startedAt: now,
+        targetCommitment: this.createCommitmentFromOnchain(chainRoundId, onchainRound.targetCommitment, now),
       });
-      void this.commitTargetDigest(this.state);
+      await this.commitTargetDigest(this.state);
       this.processedPayments.clear();
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.warn('On-chain sync skipped:', (err as Error).message);
+      console.warn('On-chain bootstrap skipped:', (err as Error).message);
     }
+  }
+
+  private createCommitmentFromOnchain(roundId: bigint, commitment: Hex, startedAt: string): TargetCommitment {
+    const digest = commitment.toString().replace(/^0x/, '');
+    return {
+      digest,
+      message: `HotCold target commitment for round ${roundId.toString()}: ${digest}`,
+      committedAt: startedAt,
+    };
+  }
+
+  private async startRoundOnChain(contractAddress: Address, round: GameRoundState) {
+    const { client, wallet } = this.ensureOnchainClient();
+    const commitmentDigest = this.getCommitmentDigest(round);
+    const txHash = await wallet.writeContract({
+      address: contractAddress,
+      abi: hotColdAbi,
+      functionName: 'startNextRound',
+      args: [round.buyInWei, digestToBytes32(commitmentDigest)],
+    });
+
+    const receipt = await client.waitForTransactionReceipt({ hash: txHash });
+
+    if (receipt.status !== 'success') {
+      throw new Error('Failed to start round on-chain');
+    }
+
+    this.state = round;
+    this.processedPayments.clear();
+  }
+
+  private async settleAndOpenNextRound(winner: Address, concludedRoundId: bigint) {
+    const { client, wallet, address } = this.ensureOnchainClient();
+    const nextRoundId = concludedRoundId + 1n;
+    const startedAt = new Date().toISOString();
+    const nextState = this.createRound({ roundId: nextRoundId.toString(), startedAt });
+    await this.commitTargetDigest(nextState);
+
+    const txHash = await wallet.writeContract({
+      address,
+      abi: hotColdAbi,
+      functionName: 'settleAndStartNextRound',
+      args: [winner, nextState.buyInWei, digestToBytes32(this.getCommitmentDigest(nextState))],
+    });
+
+    const receipt = await client.waitForTransactionReceipt({ hash: txHash });
+    if (receipt.status !== 'success') {
+      throw new Error('Settlement transaction failed or reverted');
+    }
+
+    this.state = nextState;
+    this.processedPayments.clear();
   }
 
   public getState(): GameRoundState {
@@ -358,6 +470,8 @@ class GameService {
     if (!/^\d+$/.test(normalizedGuess)) {
       throw new Error('Guess must be a numeric string');
     }
+
+    await this.ensureRoundIsReady();
 
     const payment = await this.executeGuessPayment({ player, authorization });
 
@@ -394,15 +508,15 @@ class GameService {
 
     let payout: { winner: string; amountWei: string } | undefined;
 
-    if (matches === this.state.digits) {
+    const isWinner = matches === this.state.digits;
+
+    if (isWinner) {
       this.state.winner = {
         ...guessRecord,
         payoutWei: this.state.potWei,
       };
       payout = { winner: player, amountWei: this.state.potWei.toString() };
-    }
-
-    if (!this.state.winner && matches >= this.state.nearMatchThreshold && this.state.priceSteps < MAX_PRICE_STEPS) {
+    } else if (matches >= this.state.nearMatchThreshold && this.state.priceSteps < MAX_PRICE_STEPS) {
       const stepIncrease = (this.state.buyInWei * BigInt(PRICE_INCREASE_BPS)) / BigInt(10000);
       this.state.buyInWei += stepIncrease;
       this.state.priceSteps += 1;
@@ -411,6 +525,18 @@ class GameService {
     this.state.guesses.unshift(guessRecord);
     const nonceKey = `${authorization.payer.toLowerCase()}:${authorization.nonce}`;
     this.processedPayments.add(nonceKey);
+
+    if (isWinner) {
+      const finishedState: GameRoundState = {
+        ...this.state,
+        guesses: [...this.state.guesses],
+        winner: this.state.winner ? { ...this.state.winner } : undefined,
+      };
+
+      await this.settleAndOpenNextRound(authorization.payer as Address, payment.roundId);
+
+      return { state: finishedState, guess: guessRecord, payout };
+    }
 
     return { state: this.state, guess: guessRecord, payout };
   }
@@ -425,6 +551,7 @@ class GameService {
       priceSteps: 0,
       startedAt: new Date().toISOString(),
       winner: undefined,
+      targetCommitment: this.createCommitmentFromOnchain(roundId, onchain.targetCommitment, new Date().toISOString()),
     });
     void this.commitTargetDigest(this.state);
     this.processedPayments.clear();

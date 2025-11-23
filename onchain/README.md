@@ -15,14 +15,9 @@ The contract is intentionally narrow: all game logic and hinting lives in the TE
 
 ### Constructor
 ```solidity
-constructor(
-  uint256 initialBuyInWei,
-  address teeAddress,
-  address paymentTokenAddress,
-  bytes32 initialTargetCommitment
-)
+constructor(address teeAddress, address paymentTokenAddress)
 ```
-Creates round 1 as active with the specified buy-in, sets the trusted enclave/TEE signer that controls pricing and settlement, and records the target commitment hash supplied by the enclave.
+Configures the trusted enclave/TEE signer that controls pricing and settlement and pins the ERC20 payment token used for the game. Rounds are started explicitly via `startNextRound`.
 
 ### payForGuess
 ```solidity
@@ -49,6 +44,15 @@ Pays the entire active pot to the winner, marks the round inactive, and records 
 function startNextRound(uint256 buyInWei, bytes32 targetCommitment) external onlyTee returns (uint256)
 ```
 Starts a new round after the prior one is inactive and anchors the enclave-provided commitment hash for the target.
+
+### settleAndStartNextRound
+```solidity
+function settleAndStartNextRound(address payable winner, uint256 buyInWei, bytes32 targetCommitment)
+    external
+    onlyTee
+    returns (uint256)
+```
+Closes the active round by paying the winner and immediately opens the next round with a fresh commitment.
 
 ### closeActiveRound
 ```solidity
@@ -83,13 +87,13 @@ From `onchain/`:
   --private-key <PRIVATE_KEY> \
   --tee-address <TEE_ADDRESS> \
   --payment-token-address <PAYMENT_TOKEN_ADDRESS> \
-  --initial-target-commitment <0xTARGET_COMMITMENT_HASH> \
-  --buy-in-wei <INITIAL_BUY_IN> \
   --etherscan-api-key <API_KEY> \  # optional for verification
   --verify                         # optional
 ```
 
-You can also supply `PRIVATE_KEY`, `RPC_URL`, `INITIAL_BUY_IN_WEI`, `TEE_ADDRESS`, `PAYMENT_TOKEN_ADDRESS`, `INITIAL_TARGET_COMMITMENT`, and `ETHERSCAN_API_KEY` as environment variables.
+You can also supply `PRIVATE_KEY`, `RPC_URL`, `TEE_ADDRESS`, `PAYMENT_TOKEN_ADDRESS`, and `ETHERSCAN_API_KEY` as environment variables.
+
+After deployment, the TEE must call `startNextRound` (or `settleAndStartNextRound`) to open the first round with its commitment.
 
 ### Adjusting buy-in
 Use the helper script to bump the active buy-in:

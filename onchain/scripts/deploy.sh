@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Deployment script for HotColdGame contract
-# Usage: ./scripts/deploy.sh [--rpc-url RPC_URL] [--private-key PRIVATE_KEY] [--tee-address ADDRESS] [--etherscan-api-key KEY] [--chain-id CHAIN_ID] [--verify] [--buy-in-wei AMOUNT]
+# Usage: ./scripts/deploy.sh [--rpc-url RPC_URL] [--private-key PRIVATE_KEY] [--tee-address ADDRESS] [--etherscan-api-key KEY] [--chain-id CHAIN_ID] [--verify]
 
 set -e
 
@@ -11,10 +11,8 @@ PRIVATE_KEY=""
 ETHERSCAN_API_KEY=""
 CHAIN_ID=""
 VERIFY=false
-INITIAL_BUY_IN=""
 TEE_ADDRESS=""
 PAYMENT_TOKEN_ADDRESS=""
-INITIAL_TARGET_COMMITMENT=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -39,10 +37,6 @@ while [[ $# -gt 0 ]]; do
             PAYMENT_TOKEN_ADDRESS="$2"
             shift 2
             ;;
-        --initial-target-commitment)
-            INITIAL_TARGET_COMMITMENT="$2"
-            shift 2
-            ;;
         --chain-id)
             CHAIN_ID="$2"
             shift 2
@@ -51,13 +45,9 @@ while [[ $# -gt 0 ]]; do
             VERIFY=true
             shift
             ;;
-        --buy-in-wei)
-            INITIAL_BUY_IN="$2"
-            shift 2
-            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--rpc-url RPC_URL] [--private-key PRIVATE_KEY] [--etherscan-api-key KEY] [--chain-id CHAIN_ID] [--verify] [--buy-in-wei AMOUNT] [--payment-token-address ADDRESS] [--initial-target-commitment 0xHASH]"
+            echo "Usage: $0 [--rpc-url RPC_URL] [--private-key PRIVATE_KEY] [--etherscan-api-key KEY] [--chain-id CHAIN_ID] [--verify] [--payment-token-address ADDRESS]"
             exit 1
             ;;
     esac
@@ -97,14 +87,6 @@ if [ -z "$PAYMENT_TOKEN_ADDRESS" ]; then
     PAYMENT_TOKEN_ADDRESS="$PAYMENT_TOKEN_ADDRESS_ENV"
 fi
 
-if [ -z "$INITIAL_TARGET_COMMITMENT" ]; then
-    if [ -z "$INITIAL_TARGET_COMMITMENT_ENV" ]; then
-        echo "Error: Target commitment must be provided via --initial-target-commitment or INITIAL_TARGET_COMMITMENT environment variable"
-        exit 1
-    fi
-    INITIAL_TARGET_COMMITMENT="$INITIAL_TARGET_COMMITMENT_ENV"
-fi
-
 # Check for Etherscan API key from environment (if not provided via flag)
 # Foundry automatically uses ETHERSCAN_API_KEY environment variable when --verify is used
 if [ -z "$ETHERSCAN_API_KEY" ]; then
@@ -131,17 +113,11 @@ export RPC_URL
 if [ -n "$ETHERSCAN_API_KEY" ]; then
     export ETHERSCAN_API_KEY
 fi
-if [ -n "$INITIAL_BUY_IN" ]; then
-    export INITIAL_BUY_IN_WEI="$INITIAL_BUY_IN"
-fi
 if [ -n "$TEE_ADDRESS" ]; then
     export TEE_ADDRESS
 fi
 if [ -n "$PAYMENT_TOKEN_ADDRESS" ]; then
     export PAYMENT_TOKEN_ADDRESS
-fi
-if [ -n "$INITIAL_TARGET_COMMITMENT" ]; then
-    export INITIAL_TARGET_COMMITMENT
 fi
 
 # Get the script directory and change to onchain directory
@@ -155,7 +131,6 @@ echo "RPC URL: $RPC_URL"
 echo "Deployer address will be derived from private key"
 echo "TEE address: $TEE_ADDRESS"
 echo "Payment token: $PAYMENT_TOKEN_ADDRESS"
-echo "Initial commitment: $INITIAL_TARGET_COMMITMENT"
 if [ "$VERIFY" = true ] && [ -n "$ETHERSCAN_API_KEY" ]; then
     echo "Verification: Enabled"
     if [ -n "$CHAIN_ID" ]; then
