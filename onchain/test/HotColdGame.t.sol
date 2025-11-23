@@ -37,7 +37,7 @@ contract HotColdGameTest is Test {
     address public player2 = vm.addr(player2Key);
     address public winner = address(0x99);
 
-    event RoundStarted(uint256 indexed roundId, uint256 buyIn);
+    event RoundStarted(uint256 indexed roundId, uint256 buyIn, bytes32 targetCommitment);
     event BuyInUpdated(uint256 indexed roundId, uint256 newBuyIn);
     event GuessPaid(
         uint256 indexed roundId,
@@ -48,9 +48,11 @@ contract HotColdGameTest is Test {
     );
     event WinnerPaid(uint256 indexed roundId, address indexed winner, uint256 payout);
 
+    bytes32 public initialCommitment = keccak256("round1");
+
     function setUp() public {
         token = new MockPermitToken();
-        game = new HotColdGame(1 ether, tee, address(token));
+        game = new HotColdGame(1 ether, tee, address(token), initialCommitment);
 
         token.mint(player1, 10 ether);
         token.mint(player2, 10 ether);
@@ -61,12 +63,13 @@ contract HotColdGameTest is Test {
     }
 
     function testConstructorInitializesRound() public {
-        (uint256 buyIn, uint256 pot, uint256 guesses, address roundWinner, bool active) = game.rounds(1);
+        (uint256 buyIn, uint256 pot, uint256 guesses, address roundWinner, bool active, bytes32 commitment) = game.rounds(1);
         assertEq(buyIn, 1 ether);
         assertEq(pot, 0);
         assertEq(guesses, 0);
         assertEq(roundWinner, address(0));
         assertTrue(active);
+        assertEq(commitment, initialCommitment);
         assertEq(game.currentRoundId(), 1);
         assertEq(game.owner(), owner);
         assertEq(game.tee(), tee);
@@ -172,25 +175,36 @@ contract HotColdGameTest is Test {
     function testStartNextRoundRequiresInactive() public {
         vm.expectRevert(bytes("Current round still active"));
         vm.prank(tee);
-        game.startNextRound(1 ether);
+        game.startNextRound(1 ether, keccak256("round2"));
+    }
+
+    function testStartNextRoundRequiresCommitment() public {
+        vm.prank(tee);
+        game.closeActiveRound();
+
+        vm.expectRevert(bytes("Target commitment required"));
+        vm.prank(tee);
+        game.startNextRound(1 ether, bytes32(0));
     }
 
     function testStartNextRoundAfterClosure() public {
         vm.prank(tee);
         game.closeActiveRound();
 
+        bytes32 nextCommitment = keccak256("round2");
         vm.prank(tee);
-        uint256 newId = game.startNextRound(2 ether);
+        uint256 newId = game.startNextRound(2 ether, nextCommitment);
 
         assertEq(newId, 2);
         assertEq(game.currentRoundId(), 2);
 
-        (uint256 buyIn, uint256 pot, uint256 guesses, address roundWinner, bool active) = game.rounds(2);
+        (uint256 buyIn, uint256 pot, uint256 guesses, address roundWinner, bool active, bytes32 commitment) = game.rounds(2);
         assertEq(buyIn, 2 ether);
         assertEq(pot, 0);
         assertEq(guesses, 0);
         assertEq(roundWinner, address(0));
         assertTrue(active);
+        assertEq(commitment, nextCommitment);
     }
 
     function testWithdrawIdleTracksPot() public {

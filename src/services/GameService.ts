@@ -46,6 +46,7 @@ export interface GameRoundState {
   winner?: GuessRecord & { payoutWei: bigint };
   startedAt: string;
   targetDigest: string;
+  targetCommitment?: TargetCommitment;
 }
 
 interface GuessPayment {
@@ -73,6 +74,15 @@ interface OnchainRoundState {
   guesses: bigint;
   winner: Address;
   active: boolean;
+  targetCommitment: Hex;
+}
+
+interface TargetCommitment {
+  digest: string;
+  message: string;
+  signature?: Hex;
+  signer?: Address;
+  committedAt?: string;
 }
 
 const TEN = BigInt(10);
@@ -122,6 +132,7 @@ const hotColdAbi = [
       { name: 'guesses', type: 'uint256' },
       { name: 'winner', type: 'address' },
       { name: 'active', type: 'bool' },
+      { name: 'targetCommitment', type: 'bytes32' },
     ],
   },
   {
@@ -200,6 +211,7 @@ class GameService {
 
   constructor() {
     this.state = this.createRound();
+    void this.commitTargetDigest(this.state);
     void this.trySyncFromChain();
   }
 
@@ -209,6 +221,9 @@ class GameService {
     const roundId = overrides.roundId ?? crypto.randomUUID();
     const buyInWei = overrides.buyInWei ?? parseWei(BASE_BUY_IN_WEI);
     const sealedHash = sealTarget(roundId, overrides.targetSecret ?? target);
+    const targetDigest = overrides.targetDigest ?? sealedHash;
+    const startedAt = overrides.startedAt ?? new Date().toISOString();
+    const commitment = overrides.targetCommitment ?? this.buildCommitment(roundId, targetDigest, startedAt);
 
     return {
       roundId,
@@ -222,9 +237,18 @@ class GameService {
       nearMatchThreshold: overrides.nearMatchThreshold ?? NEAR_MATCH_THRESHOLD,
       priceIncreaseBps: overrides.priceIncreaseBps ?? PRICE_INCREASE_BPS,
       distanceMetric: 'exact-position-matches',
-      startedAt: overrides.startedAt ?? new Date().toISOString(),
-      targetDigest: overrides.targetDigest ?? sealedHash,
+      startedAt,
+      targetDigest,
+      targetCommitment: commitment,
       winner: overrides.winner,
+    };
+  }
+
+  private buildCommitment(roundId: string, digest: string, startedAt: string): TargetCommitment {
+    return {
+      digest,
+      message: `HotCold target commitment for round ${roundId}: ${digest}`,
+      committedAt: startedAt,
     };
   }
 
@@ -249,6 +273,36 @@ class GameService {
     return { client: publicClient, wallet: walletClient, address: HOT_COLD_CONTRACT_ADDRESS, token: PAYMENT_TOKEN_ADDRESS };
   }
 
+  private async commitTargetDigest(round: GameRoundState) {
+    const baseCommitment = round.targetCommitment ?? this.buildCommitment(round.roundId, round.targetDigest, round.startedAt);
+
+    if (baseCommitment.signature) {
+      round.targetCommitment = baseCommitment;
+      return;
+    }
+
+    if (!walletAccount) {
+      // eslint-disable-next-line no-console
+      console.warn('TEE_PRIVATE_KEY not configured; skipping target commitment signature');
+      round.targetCommitment = baseCommitment;
+      return;
+    }
+
+    try {
+      const signature = await walletAccount.signMessage({ message: baseCommitment.message });
+      round.targetCommitment = {
+        ...baseCommitment,
+        signature,
+        signer: walletAccount.address,
+        committedAt: baseCommitment.committedAt ?? new Date().toISOString(),
+      };
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('Failed to sign target commitment:', (err as Error).message);
+      round.targetCommitment = baseCommitment;
+    }
+  }
+
   private async readRoundFromChain(roundId: bigint): Promise<OnchainRoundState> {
     const { client, address } = this.ensureOnchainClient();
     const result = await client.readContract({
@@ -257,8 +311,15 @@ class GameService {
       functionName: 'rounds',
       args: [roundId],
     });
-    const [buyIn, pot, guesses, winner, active] = result as unknown as [bigint, bigint, bigint, Address, boolean];
-    return { buyIn, pot, guesses, winner, active };
+    const [buyIn, pot, guesses, winner, active, targetCommitment] = result as unknown as [
+      bigint,
+      bigint,
+      bigint,
+      Address,
+      boolean,
+      Hex,
+    ];
+    return { buyIn, pot, guesses, winner, active, targetCommitment };
   }
 
   private async trySyncFromChain() {
@@ -272,6 +333,7 @@ class GameService {
         potWei: onchainRound.pot,
         guesses: [],
       });
+      void this.commitTargetDigest(this.state);
       this.processedPayments.clear();
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -364,6 +426,7 @@ class GameService {
       startedAt: new Date().toISOString(),
       winner: undefined,
     });
+    void this.commitTargetDigest(this.state);
     this.processedPayments.clear();
   }
 
@@ -443,7 +506,7 @@ class GameService {
   }
 
   public getPublicState() {
-    const { targetDigest, targetSecret, buyInWei, potWei, winner, guesses, ...rest } = this.state;
+    const { targetDigest, targetSecret, buyInWei, potWei, winner, guesses, targetCommitment, ...rest } = this.state;
     const sanitizedGuesses = guesses.map((g) => ({
       ...g,
       stakeEth: formatEth(g.stakeWei),
@@ -460,6 +523,7 @@ class GameService {
       paymentTokenSymbol: PAYMENT_TOKEN_SYMBOL,
       paymentTokenAddress: PAYMENT_TOKEN_ADDRESS,
       sealedTargetHash: targetDigest,
+      targetCommitment,
       winner: winner
         ? {
             ...winner,

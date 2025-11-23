@@ -14,7 +14,7 @@ interface IPermitERC20 is IERC20, IERC20Permit {}
 /// and settle the winning payout.
 contract HotColdGame is Ownable, ReentrancyGuard {
     /// @dev Emitted when a new round is initialized.
-    event RoundStarted(uint256 indexed roundId, uint256 buyIn);
+    event RoundStarted(uint256 indexed roundId, uint256 buyIn, bytes32 targetCommitment);
 
     /// @dev Emitted when the buy-in changes for the active round.
     event BuyInUpdated(uint256 indexed roundId, uint256 newBuyIn);
@@ -40,6 +40,7 @@ contract HotColdGame is Ownable, ReentrancyGuard {
         uint256 guesses; // number of paid guesses
         address winner; // non-zero when settled
         bool active; // true while accepting payments
+        bytes32 targetCommitment; // hash commitment to the hidden target
     }
 
     uint256 public currentRoundId;
@@ -58,18 +59,31 @@ contract HotColdGame is Ownable, ReentrancyGuard {
 
     /// @param initialBuyInWei starting buy-in for the first round
     /// @param teeAddress trusted enclave/TEE controller
-    constructor(uint256 initialBuyInWei, address teeAddress, address paymentTokenAddress) {
+    constructor(
+        uint256 initialBuyInWei,
+        address teeAddress,
+        address paymentTokenAddress,
+        bytes32 initialTargetCommitment
+    ) {
         require(initialBuyInWei > 0, "Buy-in must be > 0");
         require(teeAddress != address(0), "TEE address required");
         require(paymentTokenAddress != address(0), "Payment token required");
+        require(initialTargetCommitment != bytes32(0), "Target commitment required");
 
         tee = teeAddress;
         paymentToken = IPermitERC20(paymentTokenAddress);
 
         currentRoundId = 1;
-        rounds[1] = Round({buyIn: initialBuyInWei, pot: 0, guesses: 0, winner: address(0), active: true});
+        rounds[1] = Round({
+            buyIn: initialBuyInWei,
+            pot: 0,
+            guesses: 0,
+            winner: address(0),
+            active: true,
+            targetCommitment: initialTargetCommitment
+        });
 
-        emit RoundStarted(1, initialBuyInWei);
+        emit RoundStarted(1, initialBuyInWei, initialTargetCommitment);
         emit TeeUpdated(address(0), teeAddress);
     }
 
@@ -142,16 +156,25 @@ contract HotColdGame is Ownable, ReentrancyGuard {
 
     /// @notice Start a fresh round after the previous round has been settled or manually closed.
     /// @param buyInWei price per guess in wei for the new round
+    /// @param targetCommitment hash commitment to the hidden target for the new round
     /// @return newRoundId the identifier for the newly started round
-    function startNextRound(uint256 buyInWei) external onlyTee returns (uint256 newRoundId) {
+    function startNextRound(uint256 buyInWei, bytes32 targetCommitment) external onlyTee returns (uint256 newRoundId) {
         require(buyInWei > 0, "Buy-in must be > 0");
+        require(targetCommitment != bytes32(0), "Target commitment required");
         require(!rounds[currentRoundId].active, "Current round still active");
 
         newRoundId = currentRoundId + 1;
         currentRoundId = newRoundId;
-        rounds[newRoundId] = Round({buyIn: buyInWei, pot: 0, guesses: 0, winner: address(0), active: true});
+        rounds[newRoundId] = Round({
+            buyIn: buyInWei,
+            pot: 0,
+            guesses: 0,
+            winner: address(0),
+            active: true,
+            targetCommitment: targetCommitment
+        });
 
-        emit RoundStarted(newRoundId, buyInWei);
+        emit RoundStarted(newRoundId, buyInWei, targetCommitment);
     }
 
     /// @notice Emergency close for the active round without paying out, keeping funds in contract
