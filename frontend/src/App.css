@@ -102,6 +102,58 @@ body {
   flex-wrap: wrap;
 }
 
+.header-with-tooltip {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+
+.tooltip {
+  position: relative;
+  display: inline-flex;
+}
+
+.tooltip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(124, 93, 255, 0.12);
+  color: var(--text);
+  font-size: 0.95rem;
+  border: 1px solid var(--border);
+  cursor: default;
+}
+
+.tooltip-content {
+  position: absolute;
+  top: 115%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #0c0e13;
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 0.75rem 0.9rem;
+  border-radius: 10px;
+  width: 320px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  transform-origin: top;
+  line-height: 1.4;
+  z-index: 10;
+}
+
+.tooltip:hover .tooltip-content,
+.tooltip:focus-within .tooltip-content {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+
 .guess-form {
   margin-top: 1rem;
   display: grid;

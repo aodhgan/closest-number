@@ -243,9 +243,21 @@ function GameScreen() {
 
       <div className="panel">
         <div className="panel-header">
-          <div>
-            <h3>Submit guess</h3>
-            <p className="muted">Pay the buy-in with your guess; the enclave returns a deterministic hint.</p>
+          <div className="header-with-tooltip">
+            <div>
+              <h3>Submit guess</h3>
+              <p className="muted">Pay the buy-in with your guess; the enclave returns a deterministic hint.</p>
+            </div>
+            <div className="tooltip" aria-label="Payment flow details">
+              <span className="tooltip-icon" role="img" aria-hidden="true">
+                ℹ️
+              </span>
+              <div className="tooltip-content">
+                You will sign an ERC-2612 permit to move 0.001 MCK to the game contract 0x719981e3EA69a4A97eDF7d765b04A258C4482f8F;
+                the enclave backend pays gas, verifies on-chain success, then returns your deterministic hint. Payment token: MCK at
+                0xE71aC8e30C5f7671eb96Fa089aC0B8b926798Dd1.
+              </div>
+            </div>
           </div>
         </div>
         <form className="guess-form" onSubmit={handleGuess}>
@@ -265,14 +277,6 @@ function GameScreen() {
         </form>
         {!ready && <p className="muted">Waiting for Privy to initialize…</p>}
         {!authenticated && ready && <p className="muted">Login with Privy to attach your wallet to guesses.</p>}
-        <p className="muted">
-          You will sign an ERC-2612 permit to move {round?.buyInEth || '—'} {round?.paymentTokenSymbol || ''} to the game
-          contract {HOT_COLD_GAME_ADDRESS || ''}; the enclave backend pays gas, verifies on-chain success, then returns your
-          deterministic hint.
-        </p>
-        <p className="muted">
-          Payment token: {round?.paymentTokenSymbol || PAYMENT_TOKEN_SYMBOL} at {round?.paymentTokenAddress || PAYMENT_TOKEN_ADDRESS}
-        </p>
         {error && <p className="error">{error}</p>}
       </div>
 
