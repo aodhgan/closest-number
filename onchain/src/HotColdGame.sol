@@ -2,7 +2,7 @@
 pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 
@@ -57,9 +57,8 @@ contract HotColdGame is Ownable, ReentrancyGuard {
         _;
     }
 
-    /// @param initialBuyInWei starting buy-in for the first round
-    /// @param teeAddress trusted enclave/TEE controller
-    constructor(address teeAddress, address paymentTokenAddress) {
+    
+    constructor(address teeAddress, address paymentTokenAddress) Ownable(msg.sender){
         require(teeAddress != address(0), "TEE address required");
         require(paymentTokenAddress != address(0), "Payment token required");
 

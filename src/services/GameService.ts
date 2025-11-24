@@ -367,6 +367,7 @@ class GameService {
     try {
       const { client, address } = this.ensureOnchainClient();
       const chainRoundId = (await client.readContract({ address, abi: hotColdAbi, functionName: 'currentRoundId' })) as bigint;
+      console.log(`On-chain current round ID: ${chainRoundId.toString()}`);
       const now = new Date().toISOString();
 
       if (chainRoundId === 0n) {
