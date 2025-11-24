@@ -302,12 +302,20 @@ class GameService {
       }
 
       const targetCommitment = this.createCommitmentFromOnchain(chainRoundId, onchainRound.targetCommitment, now);
+      const roundIdStr = chainRoundId.toString();
+
+      if (this.state.roundId === roundIdStr && this.state.targetCommitment?.digest === targetCommitment.digest) {
+        this.state.buyInWei = onchainRound.buyIn;
+        this.state.potWei = onchainRound.pot;
+        this.state.targetCommitment = targetCommitment;
+        return;
+      }
+
       const restoredSecret = this.state?.targetSecret;
-      const roundId = chainRoundId.toString();
-      const matchingSecret = restoredSecret && sealTarget(roundId, restoredSecret) === targetCommitment.digest ? restoredSecret : undefined;
+      const matchingSecret = restoredSecret && sealTarget(roundIdStr, restoredSecret) === targetCommitment.digest ? restoredSecret : undefined;
 
       this.state = this.createRound({
-        roundId,
+        roundId: roundIdStr,
         buyInWei: onchainRound.buyIn,
         potWei: onchainRound.pot,
         guesses: [],
