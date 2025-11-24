@@ -19,6 +19,7 @@ import {
   PAYMENT_TOKEN_VERSION,
   TEE_PRIVATE_KEY,
 } from '../config/constants';
+import {hotColdAbi} from '../config/abis'
 
 export interface GuessRecord {
   player: string;
@@ -86,92 +87,6 @@ interface TargetCommitment {
 }
 
 const TEN = BigInt(10);
-
-const hotColdAbi = [
-  {
-    type: 'event',
-    name: 'GuessPaid',
-    inputs: [
-      { name: 'roundId', type: 'uint256', indexed: true },
-      { name: 'player', type: 'address', indexed: true },
-      { name: 'amount', type: 'uint256', indexed: false },
-      { name: 'potAfter', type: 'uint256', indexed: false },
-      { name: 'guessCount', type: 'uint256', indexed: false },
-    ],
-  },
-  {
-    type: 'function',
-    name: 'payForGuess',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'roundId', type: 'uint256' },
-      { name: 'payer', type: 'address' },
-      { name: 'value', type: 'uint256' },
-      { name: 'deadline', type: 'uint256' },
-      { name: 'v', type: 'uint8' },
-      { name: 'r', type: 'bytes32' },
-      { name: 's', type: 'bytes32' },
-    ],
-    outputs: [],
-  },
-  {
-    type: 'function',
-    name: 'settleWinner',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'winner', type: 'address' }],
-    outputs: [],
-  },
-  {
-    type: 'function',
-    name: 'settleAndStartNextRound',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'winner', type: 'address' },
-      { name: 'buyInWei', type: 'uint256' },
-      { name: 'targetCommitment', type: 'bytes32' },
-    ],
-    outputs: [{ name: 'newRoundId', type: 'uint256' }],
-  },
-  {
-    type: 'function',
-    name: 'startNextRound',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'buyInWei', type: 'uint256' },
-      { name: 'targetCommitment', type: 'bytes32' },
-    ],
-    outputs: [{ name: 'newRoundId', type: 'uint256' }],
-  },
-  {
-    type: 'function',
-    name: 'currentRoundId',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    type: 'function',
-    name: 'rounds',
-    stateMutability: 'view',
-    inputs: [{ name: '', type: 'uint256' }],
-    outputs: [
-      { name: 'buyIn', type: 'uint256' },
-      { name: 'pot', type: 'uint256' },
-      { name: 'guesses', type: 'uint256' },
-      { name: 'winner', type: 'address' },
-      { name: 'active', type: 'bool' },
-      { name: 'targetCommitment', type: 'bytes32' },
-    ],
-  },
-  {
-    type: 'function',
-    name: 'paymentToken',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'address' }],
-  },
-] as const;
-
 const chain = CHAIN_ID === baseSepolia.id ? baseSepolia : undefined;
 const publicClient = RPC_URL ? createPublicClient({ chain, transport: http(RPC_URL) }) : null;
 const walletAccount = TEE_PRIVATE_KEY ? privateKeyToAccount(TEE_PRIVATE_KEY as Hex) : null;
