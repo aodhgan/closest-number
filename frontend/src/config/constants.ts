@@ -43,9 +43,9 @@ export const CHAIN_ID = import.meta.env.VITE_CHAIN_ID
  * HotColdGame contract address
  * Why: Needed to direct users to pay the buy-in with payForGuess before submitting a guess.
  */
-export const HOT_COLD_GAME_ADDRESS = "0x719981e3EA69a4A97eDF7d765b04A258C4482f8F" || '';
+export const HOT_COLD_GAME_ADDRESS = '0x719981e3EA69a4A97eDF7d765b04A258C4482f8F';
 
-export const PAYMENT_TOKEN_ADDRESS = "0xE71aC8e30C5f7671eb96Fa089aC0B8b926798Dd1" || '';
+export const PAYMENT_TOKEN_ADDRESS = '0xE71aC8e30C5f7671eb96Fa089aC0B8b926798Dd1';
 export const PAYMENT_TOKEN_NAME = import.meta.env.VITE_PAYMENT_TOKEN_NAME || 'MockPermit';
 export const PAYMENT_TOKEN_SYMBOL = import.meta.env.VITE_PAYMENT_TOKEN_SYMBOL || 'MCK';
 export const PAYMENT_TOKEN_VERSION = import.meta.env.VITE_PAYMENT_TOKEN_VERSION || '1';
