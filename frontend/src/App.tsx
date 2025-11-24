@@ -253,9 +253,10 @@ function GameScreen() {
                 ℹ️
               </span>
               <div className="tooltip-content">
-                You will sign an ERC-2612 permit to move 0.001 MCK to the game contract 0x719981e3EA69a4A97eDF7d765b04A258C4482f8F;
-                the enclave backend pays gas, verifies on-chain success, then returns your deterministic hint. Payment token: MCK at
-                0xE71aC8e30C5f7671eb96Fa089aC0B8b926798Dd1.
+                You will sign an ERC-2612 permit to move {round?.buyInEth || 'the buy-in'}{' '}
+                {round?.paymentTokenSymbol || PAYMENT_TOKEN_SYMBOL} to the game contract {HOT_COLD_GAME_ADDRESS}; the enclave
+                backend pays gas, verifies on-chain success, then returns your deterministic hint. Payment token:
+                {` ${round?.paymentTokenSymbol || PAYMENT_TOKEN_SYMBOL} at ${round?.paymentTokenAddress || PAYMENT_TOKEN_ADDRESS}`}.
               </div>
             </div>
           </div>
